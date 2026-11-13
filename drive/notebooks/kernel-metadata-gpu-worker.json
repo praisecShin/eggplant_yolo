@@ -1,0 +1,11 @@
+{
+  "id": "YOUR_KAGGLE_USERNAME/eggplant-gpu-worker",
+  "title": "eggplant-gpu-worker",
+  "code_file": "eggplant_kaggle_gpu_worker_v4.31.9.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_tpu": "false",
+  "enable_internet": "true"
+}
