@@ -2,24 +2,35 @@
 
 검토일: 2026-11-13. 범위: `docs/REVIEW_CHECKLIST_v4.31.8.md` 5~7장 전체. 코드는 수정하지 않았다. 실제 CVAT·Google Drive·Kaggle에는 접속하지 않았으며, 노트북 셀을 실행하지 않았다. 아래의 노트북 줄 번호는 해당 셀의 첫 주석(`# 0.`, `# 30.` 등)을 1행으로 센 **셀 내부 줄 번호**다. 함수 일부를 분리한 재현은 가짜 객체와 임시 디렉터리만 사용했다.
 
-## 먼저 실행한 시험
+## 시험 재실행 결과 (2026-11-13)
 
-저장소 루트에서 AGENTS.md 4장의 명령을 먼저 시도했다.
+최초 검토에서는 의존성 부족으로 4개만 통과하고 6개는 실행하지 못했다. 사용자가 준비한 `.venv`를 사용해 지정 시험 10개를 다시 실행했고 **10개 모두 통과**했다. 기존 발견 20건은 유지한다. 통과한 시험이 발견의 발생 조건까지 검사하는지는 아래에서 구분했다.
+
+실행 환경: Python 3.14.4, numpy 2.5.4, Pillow 13.0.0, pyflakes 4.1.0. `.venv/bin`을 Python 실행 경로로 사용했다. 현재 세션에 Linux용 rclone·node가 없어 공식 배포 파일을 `/tmp/eggplant-rereview/bin`에 준비했다(rclone 1.76.0, Node.js 22.23.5; Node 배포 파일 SHA256 확인). ULD 시험의 선택적 영상 경로를 위해 PyAV 19.0.2도 `/tmp`에 설치했다. 의존성 다운로드 이외에는 실제 서비스에 접속하지 않았으며, rclone 시험은 각 시험이 만든 **로컬 alias 원격**만 사용했다.
 
 | 명령 | 결과 | 근거 |
 |---|---|---|
-| `python3 tests/test_sim.py drive` | 실행 실패, 종료 1 | `ModuleNotFoundError: No module named 'numpy'` |
+| `python3 tests/test_sim.py drive` | 통과, 종료 0 | `RESULT True`: 지문·성적·개수 오차·관계·분할안·고정 시험·사라진 TASK |
 | `python3 tests/test_worker30.py drive` | 통과, 종료 0 | 마지막 `통과` |
-| `python3 tests/test_worker_gpu.py drive` | 통과, 종료 0 | 마지막 `통과`. 다만 F8의 동시 실행이 이벤트 기록에 나타남 |
-| `python3 tests/test_uld.py drive` | 통과, 종료 0 | `RESULT True` |
+| `python3 tests/test_worker_gpu.py drive` | 통과, 종료 0 | 마지막 `통과`. F8의 학습 중 재처리 시작도 다시 관측됨 |
+| `python3 tests/test_uld.py drive` | 통과, 종료 0 | `RESULT True`. PyAV 없이 최초 실행 시 clip 부분이 생략되어, PyAV 추가 후 재실행해 사진 8장 이름·프레임·밝기 일치까지 통과 |
 | `python3 tests/test_state_uld.py drive` | 통과, 종료 0 | `RESULT True` |
-| `python3 tests/test_master.py drive` | 실행 실패, 종료 1 | `FileNotFoundError: ... 'rclone'` |
-| `python3 tests/test_master_gpu.py drive` | 실행 실패, 종료 1 | `FileNotFoundError: ... 'rclone'` |
-| `python3 tests/test_master_stop.py drive` | 실행 실패, 종료 1 | `FileNotFoundError: ... 'rclone'` |
-| `node tests/test_auto.js apps_script/Code.gs` | 실행 불가 | `node` 실행 파일 없음 |
-| `node tests/test_dispatch.js apps_script/Code.gs` | 실행 불가 | `node` 실행 파일 없음 |
+| `python3 tests/test_master.py drive` | 통과, 종료 0 | `RESULT True`: 배정·미지원 종류 보류·새 요청 보존·동명 TASK export·생존 신호 |
+| `python3 tests/test_master_gpu.py drive` | 통과, 종료 0 | `RESULT True`: 가짜 Kaggle push 1회·숫자 버전 정렬·배포 파일·GPU 요청 보존 |
+| `python3 tests/test_master_stop.py drive` | 통과, 종료 0 | `RESULT True`: 첫 TASK 후 정지·요청 pending 복귀·이력 |
+| `node tests/test_auto.js apps_script/Code.gs` | 통과, 종료 0 | 모든 확인 줄 `✅` |
+| `node tests/test_dispatch.js apps_script/Code.gs` | 통과, 종료 0 | 마지막 `실패: 없음` |
 
-의존성 준비도 시도했으나 Python 가상환경 생성은 `ensurepip` 부재로, 패키지 설치를 위한 `sudo apt-get update`는 `sudo: A terminal is required to authenticate`로 실패했다. 따라서 미실행 6건을 제품 결함에 따른 시험 실패로 판정하거나, 전체 시험이 통과했다고 간주하지 않았다. `pyflakes`도 설치되어 있지 않아 실행하지 못했다.
+명령은 위 표의 AGENTS.md 형식을 따르되 Python은 `.venv/bin/python`, node는 임시 폴더의 실행 파일을 사용했다. ULD의 두 번째 실행에는 임시 PyAV 경로를 PYTHONPATH에 추가했다. 마스터 시험의 가짜 Drive에 없는 `logs/shards`, `jobs`를 받는 경고 및 dispatch 시험의 설정 없는 Wake-On 생략 안내가 있었으나 최종 확인 항목은 모두 통과했다. CPU 마스터 시험은 `setup_credentials`, 실제 CVAT 호출, 상태 취합 함수를 가짜 함수로 대체하므로 F1·F11·F16을 검증하는 시험으로 볼 수 없다.
+
+`python3 -m pyflakes drive/scripts/*.py drive/notebooks/kaggle_cpu_master.py`도 가상환경에서 실행했다. 종료 코드는 1이며 **미사용 import 7건**만 보고했다: `cvat_task_tools.py:2187`, `cvat_to_yolo.py:274`, `diagnose_pipeline.py:12,183`, `drive_revisions.py:17`, `ensemble_annotate.py:11`, `relabel_bridge.py:19`. 미정의 이름 등 다른 진단은 없었다. 미사용 import는 AGENTS.md의 스타일 제외 기준에 따라 별도 발견으로 추가하지 않았다.
+
+추가 재검토 결과:
+
+- D1·D2: 실제 train_sim을 import해 빈 평가 입력·적은 train 입력의 오류 반환, 회귀 사용자 지정 변수 순서, train/val의 in_train 판정, 박스가 전체 화면·바닥·화면 밖을 덮는 경우의 유한한 이미지 지문을 확인했다. 추가 결함은 발견하지 못했다.
+- F13: Node의 격리된 vm에서 실제 Code.gs의 parseName_을 호출해 `_test`가 state=`test`, tag=`''`인 것을 확인했다. Python 결과와 다르다는 기존 발견을 실행으로 확인했다.
+- F17: 실제 train_sim.pick_frames에 n=1을 주어 ZeroDivisionError를 다시 확인했다.
+- F8: 이번 GPU 시험도 통과했지만 학습 시작 후 재처리 GPU 작업이 시작한 이벤트가 남았다. 기존 발견을 철회하지 않는다.
 
 추가 확인: Python 소스 14개(`drive/scripts/*.py`, `kaggle_cpu_master.py`)의 `compile()` 구문 검사 통과. 셀 코드 사본 9개는 노트북과 글자까지 일치한다. GPU 노트북의 0번 셀은 동일하고 30번 셀은 `W_ROLE` 한 줄만 다르다. 현재 제공된 노트북 4개에는 저장된 실행 출력이 없다.
 
@@ -125,7 +136,7 @@
 | 관련 항목 | A4, 7장 3 |
 | 위치 | 노트북 30번 셀 `_rl_do` 547~565행·`_rl_dispatch` 731행·`_w_wait_gpu` 977행; `tests/test_worker_gpu.py` 68~93행 |
 | 무엇이 문제인가 | GPU 잔여 수 계산과 LC의 줄 예약이 같은 잠금으로 보호되지 않아 학습 도중 새 재처리 GPU 일이 시작된다. 또한 줄 수는 바깥 요청 future 수로 세지만 한 요청이 안쪽 TASK 풀의 여러 줄을 동시에 사용하므로 실제 GPU 사용 수와 다르다. |
-| 일어나는 조건 | `_rl_dispatch`가 gpu_free를 계산한 뒤 LC가 학습용 줄을 예약하고, 그 뒤 dispatch가 submit하는 순서. 이번 기존 시험의 이벤트는 `LC train 1794545375.41 (lc_gpu=2, running=0)` 뒤 `AA RG1 1794545375.42 (lc_gpu=2)`, `AA RG2 1794545375.43 (lc_gpu=2)`였다. LC 가짜 작업은 0.3초 유지되므로 실제 겹침이다. 시험은 학습 시작 순간의 running만 검사해 통과했다. 별도로 두 TASK가 든 요청 하나가 TASK 풀 2줄을 쓰는 동안 LC 1줄도 허용된다. |
+| 일어나는 조건 | `_rl_dispatch`가 gpu_free를 계산한 뒤 LC가 학습용 줄을 예약하고, 그 뒤 dispatch가 submit하는 순서. 최초 시험에 이어 재검토에서도 `LC train 1794557549.95 (lc_gpu=2, running=0)` 뒤 `AA RG1 1794557549.96 (lc_gpu=2)`, `AA RG2 1794557549.97 (lc_gpu=2)`가 기록됐다. LC 가짜 작업은 0.3초 유지되므로 가짜 GPU 작업의 실행 구간이 겹친다. 실제 GPU나 YOLO 학습을 실행한 것은 아니다. 시험은 학습 시작 순간의 running만 검사해 통과했다. 별도로 두 TASK가 든 요청 하나가 TASK 풀 2줄을 쓰는 동안 LC 1줄도 허용된다. |
 | 확신 | 확인함 — 기존 시험 이벤트 및 코드 추적 |
 | 제안 | 실제 TASK 실행 단위의 공통 GPU 세마포어를 사용하고, 학습의 전체 줄 예약과 작업 시작을 원자적으로 처리한다. 학습이 끝날 때까지 새 GPU 일이 시작되지 않는지도 시험한다. |
 
@@ -191,7 +202,7 @@
 | 위치 | `apps_script/Code.gs`, `splitState_` 173~182행; `drive/scripts/cvat_task_tools.py`, `_split_state` 913~929행 |
 | 무엇이 문제인가 | 수집기의 이름 파싱은 Python과 달리 `_test`를 상태 없는 기본 계열로 처리하지 않는다. `vf_rN`의 일반 처리도 없어 `vf_r3` 등을 state=`vf`, tag=`r3`으로 나눈다. |
 | 일어나는 조건 | `eggplant_G1_261013_1_2_test`에서 Python은 state=`''`, tag=`test`, 수집기는 state=`test`, tag=`''`. 수집기가 쓰는 `status/cvat_tasks.json`과 상태별 집계의 의미가 달라진다. |
-| 확신 | 확인함 — 양쪽 분기 비교. Python 결과는 실행 확인, JavaScript는 Node 부재로 코드 추적만 수행 |
+| 확신 | 확인함 — Python 및 Node vm에서 실제 파서 호출로 불일치 재현 |
 | 제안 | 두 파서의 `_test`·vf 계열 규칙을 맞추고 같은 이름 표본으로 양쪽 결과를 비교한다. |
 
 ### F14
@@ -243,7 +254,7 @@
 | 위치 | `drive/scripts/train_sim.py`, `pick_frames` 61~66행; 노트북 33번 셀 `SIM_FRAMES` 12행 |
 | 무엇이 문제인가 | 프레임을 한 장만 고르면 `(n-1)`로 나누어 실패한다. |
 | 일어나는 조건 | 2프레임 이상인 TASK에 `SIM_FRAMES=1`. 함수를 분리해 `pick_frames({'frames':[0,1,2], 'boxes':{}}, 1)` 실행 시 `ZeroDivisionError`를 재현했다. |
-| 확신 | 확인함 — 분리 실행 |
+| 확신 | 확인함 — 최초 함수 분리 실행 및 재검토의 실제 train_sim import 실행 |
 | 제안 | n=1을 별도 처리하고 허용 범위 밖 설정은 시작 전에 검사한다. |
 
 ### F18
@@ -302,20 +313,20 @@
 | B1 | F3. CSV 대장·활동 기록은 shard를 사용하지만 tracked·TASK JSON·상태 파일은 동일한 보호를 받지 않음. |
 | B2 | F14. |
 | B3 | F2. 읽을 때의 중복 제거·pending의 최신 checked_time 우선 병합 자체에는 추가 결함 미발견. |
-| C1 | push 실패 시 gpu_start_t를 갱신하지 않아 10분 대기에 새로 걸리지 않음. 성공 직후 실패한 워커는 남은 600초 대기 뒤 재시작 가능. 코드에 명시한 기동 유예 자체는 발견으로 올리지 않음. |
-| C2 | 버전을 정수 목록으로 정렬하고 노트북 없음은 False를 반환. 추가 결함 미발견. |
+| C1 | push 실패 시 gpu_start_t를 갱신하지 않아 10분 대기에 새로 걸리지 않음. 성공 직후 실패한 워커는 남은 600초 대기 뒤 재시작 가능. 코드에 명시한 기동 유예 자체는 발견으로 올리지 않음. 재실행한 test_master_gpu는 성공 후 중복 push 방지 경로 통과. 실제 기동 실패 API는 미검증. |
+| C2 | 버전을 정수 목록으로 정렬하고 노트북 없음은 False를 반환. 추가 결함 미발견. 가짜 Drive에 4.31.2와 4.31.7을 둔 test_master_gpu에서 4.31.7 선택을 실행 확인. 시험의 4.31.7 파일명은 의도된 가짜 표본임. |
 | C3 | F11. push 임시 폴더에는 선택 노트북과 metadata만 복사하며 보안 비밀 전달 코드 없음. |
 | C4 | stdout의 running/queued 포함 여부를 검사함. 일반 상태 문자열 분기의 추가 결함은 확인하지 못함. 실제 CLI 출력과 API 동작은 미검증. |
-| D1 | 같은 라벨 IoU 내림차순 탐욕 매칭, 클래스별 개수 오차와 부호, REL_KEYS→relation keys→simulate 계수 순서 확인. 소수 TASK는 경고와 빈 계수로 반환. F17은 프레임 선택 경계값. n_boot=0 같은 기본 사용 밖 설정은 실행 검증하지 않음. numpy 수치 시험은 미실행. |
-| D2 | 원본 크기 대비 축별 박스 스케일, 화면 경계 슬라이싱, 배경이 모두 가려지면 전체 화면 fallback 확인. `fl &= mask if ... else fl`은 교집합이 없으면 원래 바닥 mask를 유지하므로 전부 가려진 바닥에서 빈 mask를 만들지 않음. 추가 결함 미발견. |
+| D1 | 같은 라벨 IoU 내림차순 탐욕 매칭, 클래스별 개수 오차와 부호, REL_KEYS→relation keys→simulate 계수 순서 확인. test_sim의 수치 시험 통과. 추가 실행으로 빈 입력, 사용자 지정 변수 순서, train/val의 in_train 값도 확인. 소수 TASK는 경고와 빈 계수로 반환. F17은 프레임 선택 경계값. n_boot=0 같은 기본 사용 밖 설정은 실행 검증하지 않음. |
+| D2 | 원본 크기 대비 축별 박스 스케일, 화면 경계 슬라이싱, 배경이 모두 가려지면 전체 화면 fallback 확인. `fl &= mask if ... else fl`은 교집합이 없으면 원래 바닥 mask를 유지하므로 전부 가려진 바닥에서 빈 mask를 만들지 않음. 재검토에서 실제 Pillow 이미지와 numpy로 전체 화면·바닥·화면 밖 박스·빈 박스를 실행해 모든 지문 값이 유한한 것을 확인. 추가 결함 미발견. |
 | D3 | F18. 대장의 split은 train/val로 기록되어 relation의 in_train 판정과 맞음. TEST_SAVE는 후보가 0이면 assert로 기존 목록을 지우지 않음. 기본 모델은 0번 셀에서 받은 BEST를 쓰고 명시 모델은 need_file을 호출함. |
 | D4 | 8자리/6자리 날짜와 줄·그루 선행 0 정규화 실행 확인. 규칙 밖 이름은 key=None, 이름 없는 고정 id는 id 자체만 제외. 이름이 없어서 다른 id와 같은 그루인지 알 수 없는 것은 정보상의 한계로 구분. |
 | D5 | EXP_IDS·VAL_IDS 적용 후에도 시험 TASK 및 같은 key를 zips/rows_in에서 제외. 서명은 제외 후 zip 목록으로 계산하므로 선택된 zip이 달라지면 이전 서명과 달라짐. 목록만 바뀌고 최종 입력이 같으면 재사용하는 것은 문제로 보지 않음. |
 | D6 | 수집기 파일이 없거나 JSON 읽기에 실패하면 빈 gone으로 처리. RLock 안의 add_history 재진입은 허용. 로컬 ULD/state 시험 통과. CPU 취합 경로는 F16. |
 | D7 | F15, CPU 반영은 F16. |
-| D8 | clip은 Kaggle에서 작업 폴더 밖에 받고 Colab 원본은 uld_clip_done에서 삭제하지 않음. 사진은 frame_map, 영상 fallback은 pyav/offset 0 사용. ULD 생성기·실영상 디코딩은 미검증. 설정 기록은 F20. |
+| D8 | clip은 Kaggle에서 작업 폴더 밖에 받고 Colab 원본은 uld_clip_done에서 삭제하지 않음. 사진은 frame_map, 영상 fallback은 pyav/offset 0 사용. PyAV로 만든 가짜 clip에서 8장 추출·프레임 밝기 확인까지 통과. 실제 운영 영상·ULD 생성기는 미검증. 설정 기록은 F20. |
 | D9 | 요청 실행에서는 제외 설정을 적용하지 않음. 직접 검색어 실행은 F19. |
-| E1 | notebook_cells 9개 및 GPU 0/30번 일치 확인. CPU ipynb와 py는 실행 코드는 같으나 첫 docstring의 판 번호만 ipynb=4.31.7, py=4.31.8로 다름. 실행 영향은 없어 별도 결함 번호를 부여하지 않음. |
+| E1 | 재검토에서도 notebook_cells 9개 및 GPU 0/30번 일치 확인. CPU ipynb와 py는 실행 코드는 같으나 첫 docstring의 판 번호만 ipynb=4.31.7, py=4.31.8로 다름. 실행 영향은 없어 별도 결함 번호를 부여하지 않음. |
 | E2 | 현행 APP_VERSION·13개 script의 __version__·CPU __version__·셀 JSON version은 4.31.8. COLLECTOR_VERSION=4.31.5 확인. 변경 이력 주석 및 별도 옛 학습 노트북 이름은 현행 버전 오류로 세지 않음. |
 | E3 | 셀의 심볼을 대조하고 use_cvat가 만드는 CLIENT/CVAT_* 및 9→10번 연속 실행을 확인. AA_SKIP_LABELED는 globals 검사로 보호됨. 다른 준비 셀을 요구하는 추가 미정의 이름은 발견하지 못함. |
 | E4 | 현행 LC_SET 대상 셀의 설정들은 한 줄 할당이며 첫 설정 변경 정규식과 맞음. 실제 다중행 설정을 잘못 바꾸는 현행 경로는 발견하지 못함. 향후 다중행 할당에는 별도 파싱이 필요함. |
@@ -340,8 +351,8 @@
 | 7-1 | 워커 배포 폴더에 notebook·metadata만 생성. 비밀 복제 없음. | Kaggle 새 버전 push 후 기존 보안 비밀 부착 유지 여부 |
 | 7-2 | Kaggle이면 Colab Drive mount 분기를 피함. 보안 비밀이 없으면 input/getpass fallback 존재(F11), waiting/종료 문제 F10. | 무인 0→30번 전체 실행, 실제 Secrets 제공·패키지 설치·CLI 상태 |
 | 7-3 | 15번 셀 req_use→job_start→학습→job_end 연결과 중단 상태 처리 확인. 기본 30번 학습 가짜 시험 통과, GPU 경합 F8. | 실제 YOLO 학습 완료 및 실제 앱 완료 상태 |
-| 7-4 | 모델 선택·대장 역할·저장·건너뛰기·시험 후보 검증 확인. F17·F18. | CVAT 프레임 다운로드와 실제 모델 탐지·수치 결과 |
-| 7-5 | frame_map·clip 크기·ULD fallback·삭제 조건 확인. 로컬 ULD 시험 통과, 기록 불일치 F20. | 실제 ULD 영상·사진과 CVAT의 디코딩·프레임 정렬 |
+| 7-4 | 모델 선택·대장 역할·저장·건너뛰기·시험 후보 검증 확인. F17·F18. test_sim과 추가 가짜 수치·이미지 경계값 실행 통과. | CVAT 프레임 다운로드와 실제 모델 탐지·운영 데이터 성적 |
+| 7-5 | frame_map·clip 크기·ULD fallback·삭제 조건 확인. PyAV 가짜 영상 추출을 포함한 로컬 ULD 시험 통과, 기록 불일치 F20. | 실제 ULD 영상·사진과 CVAT의 디코딩·프레임 정렬 |
 | 7-6 | 두 state 생성 함수의 새 필드 경로 확인, CPU 경로 F16. | 저장소 밖 두 웹앱이 필드를 표시·해석하는 동작 |
 
 ## 문제 없던 항목
@@ -352,5 +363,5 @@
 ## 보지 못한 항목
 
 - 시간 부족으로 코드 자체를 전혀 보지 못한 5~7장 항목: **없음**.
-- 환경 제약으로 실행 검증하지 못한 것: **test_sim, test_master, test_master_gpu, test_master_stop, test_auto.js, test_dispatch.js**, pyflakes 전체 검사. 특히 **D1·D2의 numpy 수치 경계값**과 **C1~C4의 마스터 통합 동작**은 코드 검토 및 일부 분리 재현에 한정된다.
+- 환경 제약으로 실행하지 못했던 지정 시험 6개와 pyflakes는 **이번 재검토에서 모두 실행했다**. D1·D2의 가짜 수치·이미지 경계값도 추가 실행했다. 실제 GPU 메모리 경합·긴 CVAT 재시도 중 반복 중지·분산 Drive 쓰기 경합의 실서비스 재현은 수행하지 않았으며, 해당 발견은 가짜 실행 기록 또는 코드 추적 근거를 따른다.
 - 지시에 따라 실제 환경에서 실행하지 않은 것: **7-1~7-6 전부**. 저장소 밖 ULD 생성기의 이름 유일성·clip 생성 규칙, 두 웹앱 소스와 표시 동작, 실제 API/CLI 응답도 확인하지 못했다.
