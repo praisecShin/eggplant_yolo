@@ -12,7 +12,7 @@
   python compare_tracks.py --pred tracks/tracks_영상.xml --gt zips/영상.zip
   출력: 화면 요약 + 예측 XML 옆에 compare_<pred이름>.csv (정답 track별 상세)
 """
-__version__ = "4.31.9"   # 가지 자동 라벨링 앱 버전 (노트북 0번 셀 APP_VERSION과 같아야 함)
+__version__ = "4.32.0"   # 가지 자동 라벨링 앱 버전 (노트북 0번 셀 APP_VERSION과 같아야 함)
 import argparse
 import csv
 import zipfile

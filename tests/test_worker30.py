@@ -1,5 +1,6 @@
 """v4.31.6 30번 통합 작업자 시험: 공정 차례 · LC GPU 맡아 두기 · 한 사람 동시 제한 · 두 앱 요청을 한 셀에서
 사용: python test_worker30.py <패키지의 drive 폴더>   (가짜 Drive 폴더 + 가짜 CVAT · torch·IPython 없이)"""
+import sys as _s, os as _o; _s.path.insert(0, _o.path.dirname(_o.path.abspath(__file__))); from _nbpick import latest   # v4.31.12 (R13)
 import json, os, shutil, sys, time, types, datetime, threading, glob
 from pathlib import Path
 PKG = Path(sys.argv[1]).resolve()
@@ -40,7 +41,7 @@ req("relabel/requests", "RB0", "refresh", [], "B", ago(0))
 req("requests", "LB1", "backup", [10], "B", ago(2))             # LC
 req("requests", "LA1", "track", [11], "A", ago(30))             # LC GPU 일
 
-nb = json.load(open(next((PKG / "notebooks").glob("eggplant_yolo_colab_v*.ipynb"))))
+nb = json.load(open(latest(PKG / "notebooks", "eggplant_yolo_colab")))
 src = "".join(nb["cells"][54]["source"])
 assert src.startswith("# 30. 작업자"), src[:40]
 cut = src.index("# ---------- 돌기 (v4.31.6)")

@@ -17,7 +17,7 @@
    v4.26: 31번 셀 LC 작업자가 켜져 있으면 요청을 받아 그 셀을 대신 실행 (학습은 사람이 15번 셀로).
    받을 때 taken_by·taken_at·taken_host(Colab/Kaggle)를 남기고, 웹 화면은 결과를 본 사람을 requests/acks/에 남긴다.
 """
-__version__ = "4.31.9"
+__version__ = "4.32.0"
 import csv
 import datetime
 import glob
@@ -52,6 +52,35 @@ P_OPEN, P_OK, P_BAD = ("요청됨", "준비 중"), ("받음", "완료", "완료(
 def pending_rows(base, kind):
     """대기 목록(CSV) 그대로"""
     return _read_csv(Path(base) / PENDING_FILES[kind])
+
+
+def backup_verdict(base, status_rows, tids, server=None):
+    """v4.31.10 (R1): 요청한 TASK마다 백업 결과 → (받음, 받는 중, 실패) TASK ID(문자열) 목록 — 30번 셀·CPU 마스터 공용.
+    받음 = 백업 상태 '최신'이고 받은 파일 경로가 적혀 있고 그 파일이 있음 (v4.31.11 R10) · 받는 중 = 이 서버의 백업 요청이 열려 있음(요청됨·준비 중)
+    · 그 밖 = 실패. 열린 요청이 없어졌다는 것만으로는 받음이 아님"""
+    rows = {str(r.get("task_id")): r for r in status_rows or []}
+    op = {str(r.get("task_id")) for r in pending_rows(base, "backup")
+          if r.get("status") in P_OPEN and (server is None or r.get("server", "") in ("", server))}
+    ok, wait, bad = [], [], []
+    for t in map(str, tids):
+        r = rows.get(t) or {}
+        f = str(r.get("last_file") or "")
+        have = r.get("backup_state") == "최신" and bool(f) and (Path(base) / f).is_file()   # v4.31.11 (R10): 경로가 있고 파일이 있어야
+        if t in op:
+            wait.append(t)
+        elif have:
+            ok.append(t)
+        else:
+            bad.append(t)
+    return ok, wait, bad
+
+
+BK_FAIL_PREFIX = ("실패", "포기")
+
+
+def failed_results(results):
+    """v4.31.11 (R7): 요청에 쌓인 TASK별 결과 중 실패·포기인 TASK ID — 최종 상태는 이번 회차가 아니라 누적 결과로 정함"""
+    return [str(x.get("task_id")) for x in results or [] if str(x.get("status", "")).startswith(BK_FAIL_PREFIX)]
 
 
 def pending_latest(base, kind):
@@ -380,11 +409,14 @@ def take(base, kind, who="", session="", limit=None, host=""):
     return out
 
 
-def finish(base, req_ids, ok=True, summary="", job_id="", who=""):
+def finish(base, req_ids, ok=True, summary="", job_id="", who="", session=""):
     """셀 작업이 끝났을 때: 받은 요청을 완료/실패로. 백업·export는 그 TASK를 모두 받았을 때만 완료,
-    아직 CVAT가 준비 중이면 '받는 중'(waiting) — 나중에 받기(download)가 끝나면 settle()이 완료로"""
+    아직 CVAT가 준비 중이면 '받는 중'(waiting) — 나중에 받기(download)가 끝나면 settle()이 완료로.
+    v4.32.0 (F3·F14): session을 주면 그 세션이 받은(taken) 요청만 끝냄 — 다른 세션이 받아 간 요청은 건드리지 않음"""
     done, cache = [], {}
     for r in list_requests(base):
+        if session and r["status"] == "taken" and r.get("taken_session") not in (session, None, ""):
+            continue
         if r["id"] in req_ids and r["status"] in ("pending", "taken"):
             st, summ = ("failed", "") if not ok else _req_eval(base, r, cache)
             text = " · ".join(x for x in [summary, summ] if x)
@@ -1566,3 +1598,107 @@ def labeling_history(base, n=12):
                          "model": _lab_model(r.get("model")), "model_label": r.get("model", ""), "status": st, "ok": True,
                          "tracks": r.get("tracks", ""), "app": "재처리 앱" if "재처리 앱" in str(r.get("note", "")) else "노트북·LC앱"})
     return {k: sorted(v, key=lambda x: str(x["time"]))[-n:] for k, v in out.items()}
+
+# ======================= v4.32.0 (F3·F14): 공유 파일은 쓰는 사람을 하나로 =======================
+# 상태 파일(web/state.json · relabel/state.json · relabel/tracked.json · label_stats · corrections)은 '취합자' 한 명만 씀.
+# 취합자 = jobs/STATE_OWNER.json 임대를 가진 작업자. 살아 있는 작업자 중 우선순위가 가장 높은 쪽(CPU 마스터 3 > 30번 셀 2)이
+# 맡고, 꺼지면(생존 신호가 LEASE_STALE_SEC 넘게 없음) 다음 순위가 이어받음. GPU 워커(우선순위 0)는 맡지 않음.
+# 취합자가 아닌 작업자는 상태 파일을 쓰지 않고 jobs/DIRTY_<세션>.json만 남김 → 취합자가 보고 곧 새로 만듦.
+LEASE_FILE = "jobs/STATE_OWNER.json"
+LEASE_STALE_SEC = 180
+LEASE_PRIO = {"cpu_master": 3, "worker": 2, "gpu": 0}
+
+
+def _age_sec(iso):
+    try:
+        t = datetime.datetime.fromisoformat(str(iso))
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=datetime.timezone.utc)
+        return (datetime.datetime.now(datetime.timezone.utc) - t).total_seconds()
+    except Exception:
+        return 1e9
+
+
+def lease_alive(cur, stale_sec=LEASE_STALE_SEC):
+    """임대가 살아 있는지 (주인이 있고 · 내려놓지 않았고 · 생존 신호가 오래되지 않음)"""
+    return bool(cur) and bool(cur.get("session")) and not cur.get("stopping") and _age_sec(cur.get("heartbeat")) < stale_sec
+
+
+def lease_should_take(cur, session, prio, stale_sec=LEASE_STALE_SEC):
+    """이 세션이 취합자를 맡아야 하는지: 이미 내 것 · 주인이 없음/꺼짐 · 주인보다 우선순위가 높음. 우선순위 0은 맡지 않음"""
+    if int(prio or 0) <= 0:
+        return False
+    if not lease_alive(cur, stale_sec):
+        return True
+    if cur.get("session") == session:
+        return True
+    return int(prio) > int(cur.get("prio") or 0)
+
+
+def lease_body(session, who, role, prio, stopping=False):
+    return {"session": session, "who": who, "role": role, "prio": int(prio), "heartbeat": _now(), "stopping": bool(stopping)}
+
+
+def lease_read(base):
+    try:
+        return json.loads((Path(base) / LEASE_FILE).read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def lease_write(base, body):
+    p = Path(base) / LEASE_FILE
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_name(f"{p.name}.{os.getpid()}.{threading_ident()}.tmp")
+    tmp.write_text(json.dumps(body, ensure_ascii=False, indent=1), encoding="utf-8")
+    os.replace(tmp, p)
+    return p
+
+
+def dirty_mark(base, session, why=""):
+    """취합자가 아닌 작업자: '상태를 새로 만들어 주세요' 표시 (jobs/DIRTY_<세션>.json) → 그 경로를 돌려줌"""
+    p = Path(base) / "jobs" / f"DIRTY_{session}.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps({"session": session, "time": _now(), "why": why}, ensure_ascii=False), encoding="utf-8")
+    return p
+
+
+# ---------- 요청: 받은 세션만 씀 ----------
+_TERMINAL = ("done", "failed", "canceled")
+
+
+def request_owned(cur, mine, session):
+    """요청 상태를 쓰기 직전 확인: 지금 Drive의 요청(cur)이 여전히 이 세션 것인지.
+    - cur 없음(지워짐·이름이 바뀌어 못 찾음) → 아님
+    - 이미 끝남(done·failed·canceled)인데 내가 가진 것은 끝나지 않음 → 아님 (다른 쪽이 끝냈거나 앱이 취소)
+    - 대기(pending) → 내가 가진 것도 대기여야 함 (받기)
+    - 진행 중·받는 중 → taken_session이 이 세션이어야 함"""
+    if not cur:
+        return False
+    st = cur.get("status")
+    if st in _TERMINAL:
+        return st == (mine or {}).get("status") and cur.get("taken_session") == session
+    if st == "pending":
+        return (mine or {}).get("status") == "pending"
+    return cur.get("taken_session") == session
+
+
+def live_sessions(base, stale_sec=LEASE_STALE_SEC):
+    """생존 신호 파일(web/worker*.json · relabel/WORKER*.json)에서 지금 살아 있는 세션들"""
+    out = set()
+    for pat in ("web/worker*.json", "relabel/WORKER*.json"):
+        for p in Path(base).glob(pat):
+            try:
+                w = json.loads(p.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if w.get("session") and not w.get("stopping") and _age_sec(w.get("heartbeat")) < stale_sec:
+                out.add(w["session"])
+    return out
+
+
+def may_adopt(req, session, alive):
+    """'받는 중'(waiting) 요청을 이 세션이 이어서 맡아도 되는지: 내 것이거나, 받은 세션이 살아 있지 않음"""
+    owner = req.get("taken_session")
+    return owner == session or not owner or owner not in alive
+

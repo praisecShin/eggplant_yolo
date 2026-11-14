@@ -1,3 +1,4 @@
+import sys as _s, os as _o; _s.path.insert(0, _o.path.dirname(_o.path.abspath(__file__))); from _nbpick import latest   # v4.31.12 (R13)
 import json, os, sys, shutil, time, types, tempfile
 from pathlib import Path
 T = tempfile.mkdtemp(); BASE = f'{T}/base'; os.makedirs(BASE)
@@ -29,7 +30,7 @@ rec = {'upload_as': 'images', 'frame_map': fm, 'clip_path': 'CVAT_UpLoader/clips
        'clip_w': 64, 'clip_h': 48, 'task_name_initial': 'e_G6_261102_3_9_uld'}
 json.dump(rec, open(f'{ULD_COLAB}/registry/tasks/77.json', 'w'))
 json.dump({'upload_as': 'video'}, open(f'{ULD_COLAB}/registry/tasks/78.json', 'w'))
-_nb = json.load(open(next(DRIVE.glob('notebooks/eggplant_yolo_colab_v*.ipynb')), encoding='utf-8'))
+_nb = json.load(open(latest(DRIVE / 'notebooks', 'eggplant_yolo_colab'), encoding='utf-8'))
 _c0 = ''.join(_nb['cells'][1]['source'])                      # 노트북 0번 셀에서 ULD·이름 규칙 부분만 꺼내 실행
 exec(_c0[_c0.index('# ---------------- v4.31.5: ULD'):_c0.index('if ON_KAGGLE:\n    _free = shutil.disk_usage')])
 

@@ -23,7 +23,7 @@ CVAT export → YOLO 데이터셋 변환 (CVAT for video 1.1 / CVAT for images 1
 
 사용법: 설정 영역만 고친 뒤  python cvat_to_yolo.py
 """
-__version__ = "4.31.9"   # 가지 자동 라벨링 앱 버전 (노트북 0번 셀 APP_VERSION과 같아야 함)
+__version__ = "4.32.0"   # 가지 자동 라벨링 앱 버전 (노트북 0번 셀 APP_VERSION과 같아야 함)
 import csv
 import io
 import random

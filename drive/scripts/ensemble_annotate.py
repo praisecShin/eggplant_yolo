@@ -5,7 +5,7 @@
 - 채택: 표(찾은 모델 수) ≥ min(min_votes, 그 라벨을 아는 모델 수). 나머지는 '검토 목록'(한 모델만 찾은 것 등).
   예: bud를 아는 모델이 2개뿐이면 bud는 2개 중 2표가 필요 (bud를 모르는 모델 때문에 지워지지 않음).
 """
-__version__ = "4.31.9"
+__version__ = "4.32.0"
 
 from collections import Counter, defaultdict
 from pathlib import Path

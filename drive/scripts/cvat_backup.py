@@ -14,7 +14,7 @@ CVAT TASK 백업 (CVAT 2.79 / app.cvat.ai) — Colab에서 실행
 
 비밀번호와 토큰은 Colab 보안 비밀에서만 읽고, 파일·로그·보드에 쓰지 않는다.
 """
-__version__ = "4.31.9"   # 가지 자동 라벨링 앱 버전 (노트북 0번 셀 APP_VERSION과 같아야 함)
+__version__ = "4.32.0"   # 가지 자동 라벨링 앱 버전 (노트북 0번 셀 APP_VERSION과 같아야 함)
 import csv
 import datetime
 import os

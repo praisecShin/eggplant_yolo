@@ -10,7 +10,7 @@ CVAT 태스크 작업 도구 (Colab 노트북에서 import해서 사용)
 
 토큰은 인자로만 받고 파일에 저장하지 않는다.
 """
-__version__ = "4.31.9"   # 가지 자동 라벨링 앱 버전 (노트북 0번 셀 APP_VERSION과 같아야 함)
+__version__ = "4.32.0"   # 가지 자동 라벨링 앱 버전 (노트북 0번 셀 APP_VERSION과 같아야 함)
 import csv
 import json
 import time

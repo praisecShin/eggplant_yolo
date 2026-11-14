@@ -1,6 +1,6 @@
-# AGENTS.md — 가지 자동 라벨링 (Eggplant) v4.31.9
+# AGENTS.md — 가지 자동 라벨링 (Eggplant) v4.32.0
 
-이 저장소에서 일하는 코딩 에이전트(Codex 등)를 위한 안내입니다. 자세한 점검 항목은 `docs/REVIEW_CHECKLIST_v4.31.8.md`(전체 점검)와 `docs/REVIEW_REQUEST_v4.31.9.md`(1차 수정 재검토), 설치·변경 내용은 `README_v4.31.9_설치.md`에 있습니다. 앱 이름: **LC앱**(가지 라벨링 관리) · **AA앱**(가지 재처리 — 코드에서는 relabel·재처리로 부름).
+이 저장소에서 일하는 코딩 에이전트(Codex 등)를 위한 안내입니다. 자세한 점검 항목은 `docs/REVIEW_CHECKLIST_v4.31.8.md`(전체 점검)와 `docs/REVIEW_REQUEST_v4.31.9.md`(1차 수정)·`docs/REVIEW_REQUEST_v4.31.10.md`(R1~R5)·`docs/REVIEW_REQUEST_v4.31.11.md`(R6~R10)·`docs/REVIEW_REQUEST_v4.31.12.md`(R11~R13)·`docs/REVIEW_REQUEST_v4.31.13.md`(R14~R16)·`docs/REVIEW_REQUEST_v4.32.0.md`(2차-1 F3·F14), 설치·변경 내용은 `README_v4.32.0_설치.md`에 있습니다. 앱 이름: **LC앱**(가지 라벨링 관리) · **AA앱**(가지 재처리 — 코드에서는 relabel·재처리로 부름).
 
 ## 1. 역할
 
@@ -21,9 +21,9 @@ drive/scripts/*.py             노트북이 불러 쓰는 부품 (Google Drive e
   cvat_backup.py, cvat_to_yolo.py, compare_tracks.py 등
 drive/scripts/notebook_cells.json  작업자가 실행하는 셀 코드 사본 (노트북과 글자까지 같아야 함)
 drive/notebooks/
-  eggplant_yolo_colab_v4.31.9.ipynb        사람이 쓰는 노트북 (0번 셀 먼저 → 필요한 셀). 30번 = 작업자, 33번 = 학습 계획 연구
-  eggplant_kaggle_gpu_worker_v4.31.9.ipynb 0번 + 30번 셀(W_ROLE='gpu') — CPU 마스터가 Kaggle API로 시작
-  eggplant_kaggle_cpu_master_v4.31.9.ipynb · kaggle_cpu_master.py   Kaggle CPU 상주 마스터 (ipynb 안의 코드 = py)
+  eggplant_yolo_colab_v4.32.0.ipynb        사람이 쓰는 노트북 (0번 셀 먼저 → 필요한 셀). 30번 = 작업자, 33번 = 학습 계획 연구
+  eggplant_kaggle_gpu_worker_v4.32.0.ipynb 0번 + 30번 셀(W_ROLE='gpu') — CPU 마스터가 Kaggle API로 시작
+  eggplant_kaggle_cpu_master_v4.32.0.ipynb · kaggle_cpu_master.py   Kaggle CPU 상주 마스터 (ipynb 안의 코드 = py)
 tests/                          가짜 Drive·가짜 CVAT 시험
 ```
 
@@ -33,7 +33,7 @@ tests/                          가짜 Drive·가짜 CVAT 시험
 
 위반은 심각도 '치명' 또는 '높음'으로 보고합니다.
 
-1. **비밀 값:** CVAT 토큰·비밀번호·`RCLONE_CONF`·`KAGGLE_KEY`는 Colab·Kaggle 보안 비밀(Apps Script는 Script Properties)에서만 읽습니다. 도구가 설정 파일을 요구하는 경우(rclone, kaggle 명령)에만 **세션 임시 폴더의 본인 전용 파일(권한 0600)**에 둘 수 있습니다(v4.31.9 확정). 코드, 출력, 로그, Drive 파일, 저장소, 요청·상태 파일, 예외 메시지에 남으면 안 됩니다. 보안 비밀이 없을 때 직접 입력받는 것은 Colab에서 사람이 셀을 직접 실행할 때만 허용하고, Kaggle·작업자 실행에서는 멈춰야 합니다. Apps Script에는 `doGet`/`doPost`(웹앱 배포)가 없어야 합니다.
+1. **비밀 값:** CVAT 토큰·비밀번호·`RCLONE_CONF`·`KAGGLE_KEY`는 Colab·Kaggle 보안 비밀(Apps Script는 Script Properties)에서만 읽습니다. 도구가 설정 파일을 요구하는 경우(rclone, kaggle 명령)에만 **세션 임시 폴더의 본인 전용 파일(권한 0600)**에 둘 수 있습니다(v4.31.9 확정 · v4.31.10: Kaggle에서는 환경 변수를 먼저 읽지 않고, 파일은 `os.open(..., 0o600)`으로 처음부터 만들어 `RCLONE_CONFIG`·`KAGGLE_CONFIG_DIR`로 연결 — 홈 폴더 `~/.config/rclone`·`~/.kaggle`에 쓰지 않음). 코드, 출력, 로그, Drive 파일, 저장소, 요청·상태 파일, 예외 메시지에 남으면 안 됩니다. 보안 비밀이 없을 때 직접 입력받는 것은 Colab에서 사람이 셀을 직접 실행할 때만 허용하고, Kaggle·작업자 실행에서는 멈춰야 합니다. Apps Script에는 `doGet`/`doPost`(웹앱 배포)가 없어야 합니다.
 2. **올리기 전 백업:** 라벨을 CVAT에 올리는 모든 경로는 먼저 그 TASK의 라벨을 export해 둡니다.
 3. **사람 라벨 보호:** 기존 라벨이 있는 TASK는 명시적 설정(`ALLOW_REPLACE`, `TRACK_UPLOAD_REPLACE`, `AA_EXISTING='replace'`) 없이 덮어쓰지 않습니다. 예외는 이름이 `_uld` 또는 `_AA`(`_AA_rN`)로 끝나는 TASK이며, 이때도 백업한 뒤 교체합니다.
 4. **이름:** 앱이 기존 TASK 이름을 바꾸는 경우는 라벨을 올린 뒤 `…_uld` → `…_uld_AA` 하나뿐입니다. 예외: 백업으로 **새로 복원한** TASK에 붙이는 이름 꼬리표(16번 셀 `RS_SUFFIX`, 기본 `_test`)는 허용합니다(v4.31.9 확정).
@@ -41,6 +41,11 @@ tests/                          가짜 Drive·가짜 CVAT 시험
 6. **TASK를 지우지 않습니다.**
 7. **거짓 완료 금지:** 처리하지 않은 요청을 '완료'로 표시하지 않습니다. 한 요청은 한 작업자만 처리하고, 배정(`requests/assign`)을 따릅니다. 같은 TASK의 요청은 보낸 차례대로 하나씩 처리합니다.
 8. **고정 시험 TASK:** `config/test_tasks.json`의 TASK와 같은 그루·촬영일 TASK는 학습·val에서 빠져야 합니다(15번 셀 `USE_TEST_SET`).
+9. **공유 파일은 쓰는 사람이 하나 (v4.32.0):**
+   - 상태 파일(`web/state.json`·`relabel/state.json`·`relabel/tracked.json`·`web/label_stats.json`·`web/corrections.json`)은 취합자(`jobs/STATE_OWNER.json` 임대를 가진 작업자)만 씁니다. 순위는 CPU 마스터 3 > 30번 셀 2이고, GPU 워커(0)는 맡지 않습니다. 취합자가 아니면 `jobs/DIRTY_<세션>.json`만 남깁니다. 숨기기·다시 보이기·새로 고침 요청도 취합자만 처리합니다.
+   - 요청 파일은 받은 세션만 씁니다. 받은 뒤 다시 읽어 확인하고, 상태를 쓰기 직전에 Drive의 요청이 아직 이 세션 것인지 확인합니다(`wb.request_owned`). '받는 중' 요청은 받은 세션이 꺼졌을 때만 넘겨받고(`wb.may_adopt`), 넘겨받았다는 기록을 남깁니다.
+   - TASK 기록(`relabel/tasks/<id>.json`)은 최신본을 받아 고친 뒤 그 파일만 올립니다(`rb.sync_record`). `relabel/**`·`relabel/tasks` 폴더를 통째로 올리지 않습니다.
+   - 남은 틈: 다시 읽기와 쓰기 사이 몇 초는 Drive에 '비교 후 쓰기'가 없어 남습니다. 이 틈 자체는 보고하지 않아도 됩니다. `backup_status.csv`·작업보드는 세션별 백업 색인에서 다시 만들어지는 파생 파일이라, 백업을 실행한 작업자가 씁니다.
 
 상태 이름 묶음(의도된 동작): `vf` = vf·vf_r1·vf_r2, `vfdf` = vf_r2df, `vfdf_ok` = vf_r2df_ok, `AA` = AA·AA_rN, `_test` = 상태 없는 기본 계열.
 
@@ -52,13 +57,18 @@ tests/                          가짜 Drive·가짜 CVAT 시험
 pip install numpy pillow pyflakes          # rclone은 OS 패키지로 (apt install rclone 등)
 
 # 저장소 맨 위에서
+python3 tests/test_fix_4320.py drive       # v4.32.0: 취합자 임대·요청 소유 확인·받는 중 넘겨받기·TASK 기록 줄·마스터 받기 확인
+python3 tests/test_fix_43113.py drive      # v4.31.13: TASK 기록은 sync_task_record로만 — 받기 실패 시 쓰지 않음(R14)·상태 갱신/AA 작업이 통째로 올리지 않음(R15)
+python3 tests/test_fix_43112.py drive      # v4.31.12: TASK 기록 통째 올리기 없앰(R11)·실패만 남은 track 마무리(R12)·시험 노트북 고르기(R13)
+python3 tests/test_fix_43111.py drive      # v4.31.11: GPU 워커 생존·쓰기 직전 재확인(R6)·누적 최종 상태(R7)·CVAT_TOKEN 없으면 멈춤(R8)·실패 track 깨움(R9)·경로 없는 최신(R10)
+python3 tests/test_fix_43110.py drive      # v4.31.10: 백업 판정 공용(R1)·보안 비밀 파일(R2)·0번 셀 이름 겹침(R3)·마스터 받는 중 백업(R4)·13번 0건 멈춤(R5)
 python3 tests/test_fix_4319.py drive       # v4.31.9 1차 수정: 진행 중 요청 소유·깨진 배정·ULD 교체 연결·백업 판정
 python3 tests/test_sim.py drive            # 학습 계획 연구·고정 시험 TASK·사라진 TASK·ULD 교체 연결
 python3 tests/test_worker30.py drive       # 30번 셀 통합 작업자: 공정 차례·GPU 줄·두 앱 요청
 python3 tests/test_worker_gpu.py drive     # GPU 워커(W_ROLE='gpu'): kaggle_gpu 배정만·학습·스스로 종료
 python3 tests/test_uld.py drive            # ULD 사진 TASK·이름 규칙
 python3 tests/test_state_uld.py drive      # 앱 상태의 ULD 표시·Drive 목록 기반 모델 목록
-python3 tests/test_master.py drive         # CPU 마스터 순환 (rclone 필요)
+MASTER_TEST_SEC=90 python3 tests/test_master.py drive   # CPU 마스터 순환 (rclone 필요 · 기본 40초, 느린 환경은 90)
 python3 tests/test_master_gpu.py drive     # CPU 마스터가 GPU 워커를 올리는지 (가짜 kaggle 명령)
 python3 tests/test_master_stop.py drive    # CPU 마스터 정지 표시
 node tests/test_auto.js apps_script/Code.gs
@@ -81,9 +91,9 @@ node tests/test_dispatch.js apps_script/Code.gs
 1. 3장의 약속 위반
 2. 요청이 처리되지 않거나, 두 번 처리되거나, 잘못된 결과를 '완료'로 남기는 경로 (특히 30번 셀의 스레드·주 스레드 동시 실행, 작업자 여럿이 Drive 파일을 함께 쓰는 경우)
 3. 데이터 손실: Drive 파일 덮어쓰기, 세션별 기록(shard) 합치기, 옛 이름 요청 파일이 되살아나는 경우
-4. 해결해 온 이슈의 재발 (`docs/REVIEW_CHECKLIST_v4.31.8.md` 4장, `docs/REVIEW_REQUEST_v4.31.9.md`)
+4. 해결해 온 이슈의 재발 (`docs/REVIEW_CHECKLIST_v4.31.8.md` 4장, `docs/REVIEW_REQUEST_v4.31.9.md`, `docs/REVIEW_REQUEST_v4.31.10.md`, `docs/REVIEW_REQUEST_v4.31.11.md`, `docs/REVIEW_REQUEST_v4.31.12.md`, `docs/REVIEW_REQUEST_v4.31.13.md`, `docs/REVIEW_REQUEST_v4.32.0.md`)
 5. v4.31.8~9 새 코드의 정확성 (`train_sim.py`, 33번 셀, 15번 셀의 시험 TASK 제외, 사라진 TASK, ULD 교체 연결)
-6. 일관성: `notebook_cells.json` ↔ 노트북 셀, GPU 워커 노트북 ↔ Colab 노트북(`W_ROLE` 한 줄만 다름), 버전 문자열 4.31.9 (`Code.gs`의 `COLLECTOR_VERSION`도 4.31.9)
+6. 일관성: `notebook_cells.json` ↔ 노트북 셀, GPU 워커 노트북 ↔ Colab 노트북(`W_ROLE` 한 줄만 다름), 버전 문자열 4.32.0 (`Code.gs`는 바뀌지 않아 `COLLECTOR_VERSION` 4.31.9 그대로)
 
 보고하지 않아도 되는 것: 한국어 문구의 어색함, 코드 스타일·이름 짓기 취향, 성능 미세 조정, 이미 주석으로 한계라고 밝힌 것.
 

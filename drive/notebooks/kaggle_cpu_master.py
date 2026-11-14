@@ -1,5 +1,10 @@
 """
-Kaggle CPU 상주 마스터 노트북 엔진 (v4.31.9)
+Kaggle CPU 상주 마스터 노트북 엔진 (v4.32.0)
+v4.32.0: 취합자 임대(jobs/STATE_OWNER.json, 우선순위 3)를 가진 때만 상태 파일 · 숨기기 등 · 요청은 받은 세션만 쓰고(올리기 전 확인) 받은 뒤 다시 읽어 확인 · TASK 기록은 공용 rb.sync_record
+v4.31.13: TASK 기록은 sync_task_record로만(받기 실패 시 쓰지 않음 R14 · 상태 갱신·AA 작업의 통째 올리기 없앰 R15) · 실행 한도는 준비 뒤부터
+v4.31.12: 받는 중 확인 뒤 relabel/tasks 통째 올리기 없앰 — 바꾼 TASK 기록만 최신본에 고쳐 올림(R11)
+v4.31.11: GPU 워커 생존 신호도 보고 쓰기 직전 요청 재확인(R6) · 누적 결과로 최종 상태(R7) · CVAT_TOKEN 없으면 멈춤(R8) · 실패·기한 초과 track도 GPU 깨움(R9)
+v4.31.10: 백업 판정을 scripts의 wb.backup_verdict로 공용(R1) · 보안 비밀은 Kaggle Secrets만, 설정 파일은 세션 임시 폴더 0600(R2) · 받는 중 AA 백업을 마스터가 받고 GPU 워커를 깨움(R4)
 v4.31.9: 재처리(AA앱) 백업을 TASK별로 판정(받는 중·실패) · 백업을 기다리던 GPU 요청도 워커 시작 이유 · 상태 파일에 ULD·사라진 TASK
 v4.31.7: kaggle_gpu 배정 요청이 있으면 GPU 워커 노트북(0번 + 30번 셀 W_ROLE='gpu')을 Kaggle API로 시작 — 워커가 직접 받고 할 일이 없으면 스스로 끝남
 v4.31.4 고친 것
@@ -28,7 +33,7 @@ v4.31.4 고친 것
          GPU가 꼭 필요한 순간에만 jobs/gpu_queue.json에 등록하고 Kaggle API로 GPU 워커 노트북을 Start 시킴
 - 역할 4 (실시간 Google Drive 백업): 임시 폴더(/tmp/eggplant_yolo)의 모든 변경사항을 rclone으로 즉시 Drive에 백업
 """
-__version__ = "4.31.9"
+__version__ = "4.32.0"
 NL, CR, TAB, BS = chr(10), chr(13), chr(9), chr(92)   # v4.31.4: 문자열 안 제어 문자는 이것으로 (내려받기에서 깨지지 않게)
 import datetime
 import io
@@ -57,7 +62,7 @@ MAX_RUN_HOURS = float(os.environ.get("MAX_RUN_HOURS", "11.2"))
 START_TS = time.time()
 _RC_LOCK = threading.RLock()
 _STATE = {"stop": False, "busy": "대기 중", "dirty": True, "last_refresh": 0.0,
-          "stop_req": None, "lc_peer": None, "aa_peer": None, "gpu_prepped": set(), "skipped": set()}
+          "stop_req": None, "lc_peer": None, "aa_peer": None, "aa_gpu_peer": None, "owner": False, "gpu_prepped": set(), "skipped": set()}
 PEER_STALE_SEC = 180
 
 
@@ -65,7 +70,8 @@ class StopRequested(Exception):
     """긴 작업 중간에 정지 표시를 봄"""
 
 CPU_DIRECT_KINDS = ("backup", "export")          # v4.31.4: 실제로 처리하는 것만 (upload·cleanup 등은 받지 않음 → 31번 셀이 처리)
-AA_DIRECT_KINDS = ("hide", "unhide", "discard", "refresh", "backup")
+AA_DIRECT_KINDS = ("discard", "backup")
+AA_STATE_KINDS = ("hide", "unhide", "refresh")   # v4.32.0: tracked.json·상태를 고치는 일 → 취합자만
 GPU_KINDS = ("shape", "aa", "track", "compare", "train")
 
 
@@ -209,50 +215,70 @@ def _parse_rclone_conf(raw_conf: str) -> str:
     return NL.join(out_blocks) + NL
 
 
+def _on_kaggle():
+    return bool(os.environ.get("KAGGLE_KERNEL_RUN_TYPE")) or Path("/kaggle/input").exists()
+
+
+def _secret_file(path, text):
+    """v4.31.10 (R2): 비밀 파일은 처음부터 본인만 읽게(0600) 만듦 — 쓰고 나서 권한을 바꾸면 그 사이에 읽힐 수 있음"""
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.chmod(path, 0o600)
+
+
+SECRET_DIR = None                                             # 세션 임시 폴더 (홈·작업 폴더 밖) — setup_credentials에서 만듦
+
+
 def setup_credentials():
-    """Kaggle Secrets 또는 환경 변수에서 RCLONE_CONF, CVAT_TOKEN, KAGGLE_USERNAME, KAGGLE_KEY 로드 및 파일 생성"""
+    """v4.31.10 (R2): Kaggle에서는 Kaggle 보안 비밀만 읽음 (환경 변수 먼저 읽지 않음).
+    rclone.conf·kaggle.json은 홈이 아닌 세션 임시 폴더에 0600으로 만들고 RCLONE_CONFIG·KAGGLE_CONFIG_DIR로 연결.
+    Kaggle이 아닌 로컬 실행(시험)에서만 환경 변수를 씀"""
+    global SECRET_DIR
+    kaggle = _on_kaggle()
+    if SECRET_DIR is None:
+        SECRET_DIR = Path(tempfile.mkdtemp(prefix="eggplant_sec_"))   # mkdtemp는 처음부터 0700
+
     def _get_sec(key_name):
-        for candidate in (key_name, key_name.lower(), key_name.upper()):
-            if os.environ.get(candidate):
-                val = os.environ[candidate].strip()
-                os.environ[key_name] = val
-                return val
+        if kaggle:
             try:
                 from kaggle_secrets import UserSecretsClient
-                v = UserSecretsClient().get_secret(candidate)
-                if v:
-                    val = v.strip()
-                    os.environ[key_name] = val
-                    return val
+                v = UserSecretsClient().get_secret(key_name)
             except Exception:
-                pass
-        return ""
+                v = None
+        else:
+            v = os.environ.get(key_name)
+        return (v or "").strip()
 
     rconf_raw = _get_sec("RCLONE_CONF")
-    if not rconf_raw:
+    if rconf_raw:
+        clean_conf = _parse_rclone_conf(rconf_raw)
+        cp = SECRET_DIR / "rclone.conf"
+        _secret_file(cp, clean_conf)
+        os.environ["RCLONE_CONFIG"] = str(cp)
+        keys_found = [line.split("=")[0].strip() for line in clean_conf.splitlines() if "=" in line]
+        print(f"✅ rclone 설정 준비 (세션 임시 폴더 · 인식된 설정 키: {keys_found})")
+    elif kaggle or not os.environ.get("RCLONE_CONFIG"):
         raise RuntimeError("Kaggle Secrets에서 'RCLONE_CONF'를 찾을 수 없습니다. 우측 Add-ons -> Secrets 부착 여부를 확인하세요.")
 
-    clean_conf = _parse_rclone_conf(rconf_raw)
-    cp = Path.home() / ".config" / "rclone" / "rclone.conf"
-    cp.parent.mkdir(parents=True, exist_ok=True)
-    cp.write_text(clean_conf, encoding="utf-8")
-    os.chmod(cp, 0o600)
-
-    keys_found = [line.split("=")[0].strip() for line in clean_conf.splitlines() if "=" in line]
-    print(f"✅ rclone.conf 파싱 및 생성 완료 (인식된 설정 키: {keys_found})")
-
     cvat_tok = _get_sec("CVAT_TOKEN")
-    if not cvat_tok:
+    if cvat_tok:
+        os.environ["CVAT_TOKEN"] = cvat_tok          # cvat_backup에 넘기려고 이 프로세스 안에서만 둠 (파일·로그에 쓰지 않음)
+    elif kaggle:                                     # v4.31.11 (R8): Kaggle에서 비밀이 없으면 멈춤 — 남아 있던 환경 값을 쓰지 않음
+        os.environ.pop("CVAT_TOKEN", None)
+        raise RuntimeError("Kaggle Secrets에서 'CVAT_TOKEN'을 찾을 수 없습니다. 우측 Add-ons -> Secrets 부착 여부를 확인하세요.")
+    else:
         print("⚠️ 경고: CVAT_TOKEN 시크릿이 비어 있습니다.")
 
     kg_user = _get_sec("KAGGLE_USERNAME")
     kg_key = _get_sec("KAGGLE_KEY")
     if kg_user and kg_key:
-        kp = Path.home() / ".kaggle" / "kaggle.json"
-        kp.parent.mkdir(parents=True, exist_ok=True)
-        kp.write_text(json.dumps({"username": kg_user, "key": kg_key}), encoding="utf-8")
-        os.chmod(kp, 0o600)
-        print(f"✅ kaggle.json 생성 완료 (계정: {kg_user})")
+        kd = SECRET_DIR / "kaggle"
+        _secret_file(kd / "kaggle.json", json.dumps({"username": kg_user, "key": kg_key}))
+        os.environ["KAGGLE_CONFIG_DIR"] = str(kd)
+        os.environ["KAGGLE_USERNAME"] = kg_user      # GPU 워커 시작 판단용 (키 값은 환경에 두지 않음)
+        print(f"✅ kaggle 설정 준비 (세션 임시 폴더 · 계정: {kg_user})")
 
 
 def initial_pull():
@@ -357,6 +383,12 @@ def send_heartbeat_once(wb, rb, started_str, stopping=False):
                 "mode": "주간(08~19시)" if is_daytime_kst() else "야간 승인 가동"}
     _STATE["lc_peer"] = _peer("web/worker.json", SESSION_ID)
     _STATE["aa_peer"] = _peer("relabel/WORKER.json", SESSION_ID)
+    _STATE["aa_gpu_peer"] = _peer("relabel/WORKER_gpu.json", SESSION_ID)   # v4.31.11 (R6): GPU 워커(W_ROLE='gpu')의 생존 신호
+    try:
+        lease_tick(wb, stopping=stopping)          # v4.32.0: 생존 신호와 같이 취합자 임대도 갱신
+    except Exception as e:
+        _STATE["owner"] = False
+        print(f"⚠️ 취합자 임대 확인 실패: {e}")
     for rel, peer, app in (("web/worker.json", _STATE["lc_peer"], "LC"), ("relabel/WORKER.json", _STATE["aa_peer"], "AA")):
         own = rel.replace(".json", "_cpu_master.json")
         p = BASE / own
@@ -364,6 +396,58 @@ def send_heartbeat_once(wb, rb, started_str, stopping=False):
         p.write_text(json.dumps(_beat_obj(busy_obj, started_str, stopping, app), ensure_ascii=False, indent=1), encoding="utf-8")
         for t in [own] + ([] if peer else [rel]):
             rclone("copyto", str(p), _remote(t))
+
+
+def lease_tick(wb, stopping=False):
+    """v4.32.0 (F3·F14): 취합자 임대(jobs/STATE_OWNER.json) — CPU 마스터는 우선순위 3. 맡으면 상태 파일을 이 마스터만 씀"""
+    rel = wb.LEASE_FILE
+    tmp = BASE / "jobs" / "_lease_remote.json"
+    tmp.unlink(missing_ok=True)
+    got = _fetch_remote(rel, tmp)
+    if got == "fail":
+        _STATE["owner"] = False                    # Drive를 못 읽으면 맡지 않음 (두 명이 되지 않게)
+        return False
+    try:
+        cur = json.loads(tmp.read_text(encoding="utf-8")) if got == "ok" else None
+    except Exception:
+        cur = None
+    tmp.unlink(missing_ok=True)
+    mine_now = bool(cur) and cur.get("session") == SESSION_ID
+    if stopping:
+        if mine_now:
+            wb.lease_write(BASE, wb.lease_body(SESSION_ID, "kaggle-cpu-master", "cpu_master", wb.LEASE_PRIO["cpu_master"], stopping=True))
+            _put_remote(rel, BASE / rel)
+        _STATE["owner"] = False
+        return False
+    if not wb.lease_should_take(cur, SESSION_ID, wb.LEASE_PRIO["cpu_master"]):
+        _STATE["owner"] = False
+        return False
+    wb.lease_write(BASE, wb.lease_body(SESSION_ID, "kaggle-cpu-master", "cpu_master", wb.LEASE_PRIO["cpu_master"]))
+    if not _put_remote(rel, BASE / rel):
+        _STATE["owner"] = False
+        return False
+    if not mine_now:                               # 새로 맡음 → 잠시 뒤 다시 읽어 확인
+        time.sleep(CLAIM_CONFIRM_SEC)
+        if _fetch_remote(rel, tmp) != "ok":
+            _STATE["owner"] = False
+            return False
+        try:
+            again = json.loads(tmp.read_text(encoding="utf-8"))
+        except Exception:
+            again = None
+        tmp.unlink(missing_ok=True)
+        if not again or again.get("session") != SESSION_ID:
+            _STATE["owner"] = False
+            return False
+        print(f"🔑 [{kst_now().strftime('%H:%M:%S')}] 상태 파일 취합자를 맡음 (jobs/STATE_OWNER.json)")
+    _STATE["owner"] = True
+    return True
+
+
+def dirty_markers():
+    """다른 작업자가 남긴 '상태 새로 만들어 주세요' 표시 (jobs/DIRTY_*.json) — Drive에서 받아 목록"""
+    rclone("copy", _remote("jobs"), str(BASE / "jobs"), "--include", "DIRTY_*.json")
+    return sorted((BASE / "jobs").glob("DIRTY_*.json"))
 
 
 def heartbeat_loop(started_str):
@@ -423,8 +507,8 @@ def is_gpu_kernel_running(kernel_slug):
 def start_gpu_worker_if_needed(reason="", prefer_train=False):
     """GPU 대기열(jobs/gpu_queue.json)에 작업이 있을 때 Kaggle GPU 워커 노트북을 Start (enable_gpu: true)"""
     kg_user = os.environ.get("KAGGLE_USERNAME", "")
-    kg_key = os.environ.get("KAGGLE_KEY", "")
-    if not (kg_user and kg_key and shutil.which("kaggle")):
+    kg_ok = (Path(os.environ.get("KAGGLE_CONFIG_DIR", "")) / "kaggle.json").is_file() or bool(os.environ.get("KAGGLE_KEY"))   # v4.31.10 (R2)
+    if not (kg_user and kg_ok and shutil.which("kaggle")):
         print(f"ℹ️ [GPU 점화 대기] KAGGLE_USERNAME/KAGGLE_KEY가 없어 수동 GPU 워커 실행이 필요합니다 (사유: {reason})")
         return False
 
@@ -483,10 +567,17 @@ def gpu_pending(wb, rb):
     """v4.31.7: kaggle_gpu로 배정된 대기 요청 수 (LC + 재처리) — GPU 워커를 시작할지"""
     n = 0
     rclone("copyto", _remote("backups/pending_backups.csv"), str(BASE / "backups/pending_backups.csv"))
-    op = {str(x.get("task_id")) for x in wb.pending_rows(BASE, "backup") if x.get("status") in ("요청됨", "준비 중")}
-    for r in rb.list_requests(BASE):                   # v4.31.9 (F10): 백업을 기다리던 GPU 요청(track)의 백업이 준비됐으면 워커를 다시 켬
+    rclone("copyto", _remote("backup_status.csv"), str(BASE / "backup_status.csv"))
+    rows = wb._read_csv(BASE / "backup_status.csv")
+    for r in rb.list_requests(BASE):                   # v4.31.10 (R1·R4): 백업을 기다리던 GPU 요청 — 남은 TASK의 백업을 실제로 받았으면 워커를 다시 켬
         if r["status"] == "waiting" and r.get("kind") in ("track", "shape") and r.get("taken_host") == "kaggle_gpu":
-            if any(str(t) not in op for t in (r.get("remaining") or [])):
+            ok, wait, bad = wb.backup_verdict(BASE, rows, r.get("remaining") or [])
+            try:
+                since = float(r.get("waiting_t") or 0)
+            except (TypeError, ValueError):
+                since = 0
+            late = bool(wait) and since and time.time() - since > TRACK_GIVEUP_H * 3600
+            if ok or bad or late:                      # v4.31.11 (R9): 받은 것뿐 아니라 실패·기한 초과만 남아도 깨워 GPU 워커가 마무리
                 n += 1
     for lst in (wb.list_requests(BASE), rb.list_requests(BASE)):
         for r in lst:
@@ -571,13 +662,43 @@ def pull_requests(sub):
     return True
 
 
-def push_req(before, after, sub):
-    """상태를 바꾼 요청 하나만 Drive에 반영: 새 이름 파일 올리고, 옛 이름 파일만 지움"""
+def remote_req(sub, rid):
+    """v4.32.0: Drive에 있는 그 요청 — (파일 이름 목록, 내용 dict 또는 None). 목록을 못 읽으면 (None, None)"""
+    res = rclone("lsf", "--files-only", "--include", f"REQ_{rid}__*", _remote(sub))
+    if res.returncode != 0:
+        return None, None
+    names = sorted(x.strip() for x in res.stdout.splitlines() if x.strip())
+    if len(names) != 1:
+        return names, None
+    tmp = BASE / "jobs" / f"_remote_{names[0]}"
+    tmp.parent.mkdir(parents=True, exist_ok=True)
+    tmp.unlink(missing_ok=True)
+    try:
+        if rclone("copyto", _remote(f"{sub}/{names[0]}"), str(tmp)).returncode != 0:
+            return names, None
+        return names, json.loads(tmp.read_text(encoding="utf-8"))
+    except Exception:
+        return names, None
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def push_req(before, after, sub, adopt=False):
+    """상태를 바꾼 요청 하나만 Drive에 반영: 새 이름 파일 올리고, 옛 이름 파일만 지움.
+    v4.32.0 (F3·F14): 올리기 직전 Drive의 요청이 아직 이 세션 것인지 확인 (wb.request_owned) — 아니면 올리지 않고 False.
+    adopt=True는 '받는 중' 요청을 넘겨받을 때 (호출한 쪽이 _same_waiting으로 이미 확인함)"""
+    import web_bridge as _wb
+    if not adopt:
+        _, cur = remote_req(sub, before["id"])
+        if not _wb.request_owned(cur, before, SESSION_ID):
+            print(f"ℹ️ 요청 {before['id']}: Drive에서 이 세션 것이 아님(다른 작업자가 받았거나 끝냄·취소) → 올리지 않음")
+            return False
     new = Path(after["_path"])
     rclone("copyto", str(new), _remote(f"{sub}/{new.name}"), quiet=False)
     olds = {Path(x).name for x in [before.get("_path")] + list(before.get("_dups") or []) if x}
     for old in olds - {new.name}:
         rclone("deletefile", _remote(f"{sub}/{old}"))
+    return True
 
 
 def still_pending(req, sub):
@@ -602,8 +723,17 @@ def claim(wb, rb, req, scope):
     fields = dict(taken_by="kaggle-cpu-master", taken_session=SESSION_ID, taken_at=kst_now().isoformat(timespec="seconds"),
                   taken_host="kaggle_cpu", by="kaggle-cpu-master", host="kaggle_cpu")
     new = wb.set_status(BASE, req, "taken", **fields) if scope == "lc" else rb.set_status(BASE, req, "taken", **fields)
-    push_req(req, new, sub)
+    if not push_req(req, new, sub):
+        return None
+    time.sleep(CLAIM_CONFIRM_SEC)                  # v4.32.0: 받은 뒤 다시 읽어 확인 — 거의 동시에 받은 다른 작업자가 있으면 물러남
+    names, cur = remote_req(sub, req["id"])
+    if names != [Path(new["_path"]).name] or not cur or cur.get("taken_session") != SESSION_ID:
+        print(f"ℹ️ 요청 {req['id']}: 다른 작업자가 거의 동시에 받음 → 물러남")
+        return None
     return new
+
+
+CLAIM_CONFIRM_SEC = float(os.environ.get("MASTER_CLAIM_CONFIRM_SEC", "2"))
 
 
 def release(wb, rb, req, scope, why):
@@ -783,7 +913,19 @@ def aggregate_and_sync_state(ctt, wb, rb):
     b_lines = rclone("lsf", "-R", "--files-only", _remote("backups")).stdout.splitlines()
     vn, bn = wb.media_names(BASE, remote_videos=v_lines, remote_backups=b_lines)
 
-    tracked = rb.update_tracked(BASE, tasks)
+    # v4.31.13 (R15): update_tracked가 쓰는 '사라짐' 이력은 모아 두었다가 sync_task_record로 그 TASK 파일만 고쳐 올림
+    gone_notes = []
+    _orig_add = rb.add_history
+    rb.add_history = lambda base, tid, **entry: gone_notes.append((str(tid), entry))
+    try:
+        tracked = rb.update_tracked(BASE, tasks)
+    finally:
+        rb.add_history = _orig_add
+    retry = [tid for tid, entry in gone_notes if not sync_task_record(tid, lambda tid=tid, entry=entry: _history_once(rb, tid, **entry))]
+    if retry:                                      # 못 쓴 것은 gone_at을 지워 다음 갱신 때 다시 적게 함
+        for tid in retry:
+            (tracked.get(tid) or {}).pop("gone_at", None)
+        rb._write_json(rb.root(BASE) / "tracked.json", tracked)
     rb.build_state(BASE, tracked=tracked, media=(vn, bn), server=f"{ctt.whoami(client)}@app.cvat.ai", scope_text=ctt.scope_text(scope),
                    uld=uld["index"], replaced=uld["lineage"])
 
@@ -804,7 +946,8 @@ def aggregate_and_sync_state(ctt, wb, rb):
 
     # worker 파일(다른 작업자 것)과 요청 폴더는 여기서 올리지 않음 — 덮어쓰기·되살리기 방지
     rclone("copy", str(BASE / "web"), _remote("web"), "--exclude", "worker*.json", "--exclude", "*.tmp")
-    rclone("copy", str(BASE / "relabel"), _remote("relabel"), "--exclude", "requests/**", "--exclude", "WORKER*.json", "--exclude", "*.tmp")
+    rclone("copy", str(BASE / "relabel"), _remote("relabel"), "--exclude", "requests/**", "--exclude", "tasks/**",     # v4.31.13 (R15): TASK 기록은 올리지 않음
+           "--exclude", "WORKER*.json", "--exclude", "*.tmp")
     _STATE["dirty"] = False
     _STATE["last_refresh"] = time.time()
     _STATE["busy"] = "대기 중"
@@ -844,19 +987,134 @@ def handle_lc(ctt, wb, rb, req, started_str):
 
 
 def backup_verdict(wb, status_rows, tids):
-    """v4.31.9 (F1): 요청한 TASK마다 백업 결과 → (받음, 받는 중, 실패) TASK ID 목록.
-    받음 = 백업 상태 '최신' · 받는 중 = CVAT에 백업 요청이 열려 있음(요청됨·준비 중) · 그 밖 = 실패 (만들어지지 않음)"""
-    st = {str(r.get("task_id")): r.get("backup_state", "") for r in status_rows or []}
-    op = {str(r.get("task_id")) for r in wb.pending_rows(BASE, "backup") if r.get("status") in ("요청됨", "준비 중")}
-    ok, wait, bad = [], [], []
-    for t in map(str, tids):
-        if st.get(t) == "최신" and t not in op:
-            ok.append(t)
-        elif t in op:
-            wait.append(t)
-        else:
-            bad.append(t)
-    return ok, wait, bad
+    """v4.31.10 (R1): 판정은 scripts의 wb.backup_verdict (30번 셀과 같은 기준 — '최신'이고 파일이 있어야 받음)"""
+    return wb.backup_verdict(BASE, status_rows, tids)
+
+
+TRACK_GIVEUP_H = float(os.environ.get("MASTER_TRACK_GIVEUP_H", "6"))   # 30번 셀 RL_BACKUP_GIVEUP_H와 같게
+BK_POLL_SEC = int(os.environ.get("MASTER_BK_POLL_SEC", "300"))
+BK_GIVEUP_H = float(os.environ.get("MASTER_BK_GIVEUP_H", "24"))
+
+
+def _fetch_remote(rel, dest):
+    """Drive 파일 하나 받기 → 'ok' · 'missing'(목록이 성공했고 없음, 또는 폴더 자체가 없음) · 'fail'"""
+    d, name = rel.rsplit("/", 1)
+    ls = rclone("lsf", "--files-only", "--include", name, _remote(d))
+    if ls.returncode != 0:
+        return "missing" if "directory not found" in str(ls.stderr or "").lower() else "fail"
+    if name not in {x.strip() for x in (ls.stdout or "").splitlines()}:
+        return "missing"
+    Path(dest).parent.mkdir(parents=True, exist_ok=True)
+    got = rclone("copyto", _remote(rel), str(dest))
+    return "ok" if got.returncode == 0 and Path(dest).is_file() else "fail"
+
+
+def _put_remote(rel, src):
+    return rclone("copyto", str(src), _remote(rel)).returncode == 0
+
+
+def sync_task_record(tid, mutate):
+    """v4.31.13 (R14·R15) → v4.32.0: 공용 rb.sync_record (Colab 30번 셀·GPU 워커와 같은 길) — 최신본 받기 → mutate() → 그 파일만 올림"""
+    import relabel_bridge as _rb
+    return _rb.sync_record(BASE, tid, mutate, _fetch_remote, _put_remote)
+
+
+def _history_once(rb, tid, **entry):
+    """같은 요청·종류·상태의 이력이 이미 있으면 다시 쓰지 않음 (실패 뒤 다시 할 때 두 번 적히지 않게)"""
+    rec = rb.task_record(BASE, tid)
+    keys = ("kind", "status", "request", "note")
+    if any(all(h.get(k) == entry.get(k) for k in keys if k in entry) for h in rec.get("history") or []):
+        return
+    rb.add_history(BASE, tid, **entry)
+
+
+def aa_worker_alive():
+    """v4.31.11 (R6): 30번 셀 작업자(relabel/WORKER.json)나 GPU 워커(relabel/WORKER_gpu.json)가 살아 있는지"""
+    return _STATE.get("aa_peer") is not None or _STATE.get("aa_gpu_peer") is not None
+
+
+def _same_waiting(r):
+    """v4.31.11 (R6): 결과를 쓰기 직전에 Drive의 요청을 다시 읽어, 처음 읽은 것과 같을 때만 True (그 사이 다른 작업자가 바꿨으면 손대지 않음)"""
+    name = Path(r["_path"]).name
+    res = rclone("lsf", "--files-only", "--include", f"REQ_{r['id']}__*", _remote("relabel/requests"))
+    if res.returncode != 0 or sorted(x.strip() for x in res.stdout.splitlines() if x.strip()) != [name]:
+        return False
+    tmp = BASE / "jobs" / f"_fresh_{name}"
+    tmp.parent.mkdir(parents=True, exist_ok=True)
+    tmp.unlink(missing_ok=True)
+    if rclone("copyto", _remote(f"relabel/requests/{name}"), str(tmp)).returncode != 0 or not tmp.exists():
+        return False
+    try:
+        cur = json.loads(tmp.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    finally:
+        tmp.unlink(missing_ok=True)
+    keys = ("status", "remaining", "results", "result", "taken_session", "history")   # history = 상태를 바꿀 때마다 늘어남 (세대)
+    return all(cur.get(k) == r.get(k) for k in keys)
+
+
+def poll_waiting_backups(ctt, wb, rb):
+    """v4.31.10 (R4): '받는 중'(waiting) AA 요청의 백업을 CPU 마스터가 받음 — GPU 워커가 꺼져 있어도 누군가 받게.
+    백업 요청은 여기서 끝내고, track·shape 요청은 받은 뒤 GPU 워커를 깨워(gpu_pending) 마저 하게 함. 30번 셀이 살아 있으면 그쪽이 함"""
+    if aa_worker_alive() or time.time() - _STATE.get("bk_poll_t", 0) < BK_POLL_SEC:
+        return 0
+    _STATE["bk_poll_t"] = time.time()
+    reqs = [r for r in rb.waiting_requests(BASE) if r.get("remaining")]
+    need = sorted({int(t) for r in reqs for t in r.get("remaining") or []})
+    if not need:
+        return 0
+    rclone("copyto", _remote("backups/pending_backups.csv"), str(BASE / "backups/pending_backups.csv"))
+    rclone("copyto", _remote("backups/backup_index.csv"), str(BASE / "backups/backup_index.csv"))
+    _STATE["busy"] = f"받는 중 백업 확인 {len(need)}개"
+    _STATE["last_backup_rows"] = []
+    run_cpu_backup_and_export(ctt, wb, {"id": "bkpoll", "task_ids": need, "params": {"mode": "download", "export_reviewed": False}})
+    ok, wait, bad = wb.backup_verdict(BASE, _STATE.get("last_backup_rows"), need)
+    print(f"[*] 받는 중 백업 확인: 받음 {len(ok)} · 받는 중 {len(wait)} · 실패 {len(bad)}")
+    for r in reqs:
+        if r.get("kind") != "backup":
+            continue                               # track·shape → gpu_pending이 받은 것을 보고 GPU 워커를 깨움
+        rem = [str(t) for t in r.get("remaining") or []]
+        got = [t for t in rem if t in ok]
+        left = [t for t in rem if t in wait]
+        lost = [t for t in rem if t in bad]
+        try:
+            since = float(r.get("waiting_t") or 0) or time.time()
+        except (TypeError, ValueError):
+            since = time.time()
+        late = bool(left) and time.time() - since > BK_GIVEUP_H * 3600
+        if not got and not lost and not late:
+            continue
+        _STATE["aa_peer"] = _peer("relabel/WORKER.json", SESSION_ID)          # v4.31.11 (R6): 받는 사이 작업자가 켜졌으면 손대지 않음
+        _STATE["aa_gpu_peer"] = _peer("relabel/WORKER_gpu.json", SESSION_ID)
+        live = {w.get("session") for w in (_STATE["lc_peer"], _STATE["aa_peer"], _STATE["aa_gpu_peer"]) if w}
+        if aa_worker_alive() or not _same_waiting(r) or not wb.may_adopt(r, SESSION_ID, live):
+            print(f"ℹ️ {r['id']}: 다른 작업자가 있거나 요청이 바뀜 → 이번 결과는 쓰지 않음")
+            continue
+        adopt = {} if r.get("taken_session") == SESSION_ID else {"taken_session": SESSION_ID, "taken_host": "kaggle_cpu",
+                                                                  "adopted_from": r.get("taken_session") or ""}   # v4.32.0: 넘겨받음을 기록
+        # v4.31.13 (R14): TASK 기록은 sync_task_record로만 — 하나라도 실패하면 이 요청은 이번에 끝내지 않고 다음 확인 때 다시
+        if not all([sync_task_record(t, lambda t=t: _history_once(rb, int(t), kind="backup", status="받음", request=r["id"], who="kaggle-cpu-master"))
+                    for t in got]):
+            print(f"ℹ️ {r['id']}: TASK 기록을 쓰지 못함 → 요청은 '받는 중'으로 두고 다음 확인 때 다시")
+            continue
+        prev = {str(x.get("task_id")): x for x in r.get("results") or []}
+        for t in got:
+            prev[t] = {"task_id": t, "status": "받음", "note": ""}
+        for t in lost:
+            prev[t] = {"task_id": t, "status": "실패", "note": "백업이 만들어지지 않음"}
+        for t in (left if late else []):
+            prev[t] = {"task_id": t, "status": "포기 (준비 안 됨)", "note": f"{BK_GIVEUP_H:g}시간 넘게 준비 안 됨"}
+        res = list(prev.values())
+        txt = (str(r.get("result", "")) + f" · 받음 {len(got)}" + (f" · 실패 {len(lost)}" if lost else "") + (" · 포기" if late else ""))[:500]
+        if left and not late:
+            fin = rb.set_status(BASE, r, "waiting", by="kaggle-cpu-master", remaining=[int(t) for t in left], waiting_t=since, results=res, result=txt, **adopt)
+        else:                                      # v4.31.11 (R7): 누적 결과에 실패·포기가 하나라도 있으면 실패
+            fin = rb.set_status(BASE, r, "failed" if wb.failed_results(res) else "done", by="kaggle-cpu-master",
+                                remaining=[], results=res, result=txt, done_at=kst_now().isoformat(timespec="seconds"), **adopt)
+        push_req(r, fin, "relabel/requests", adopt=True)
+        _STATE["dirty"] = True
+    return len(ok)                                 # v4.31.12 (R11): relabel/tasks 폴더를 통째로 올리지 않음
 
 
 def handle_aa(ctt, wb, rb, req, started_str):
@@ -874,8 +1132,9 @@ def handle_aa(ctt, wb, rb, req, started_str):
             rb.set_hidden(BASE, tids, kind == "hide")
             rclone("copyto", str(BASE / "relabel/tracked.json"), _remote("relabel/tracked.json"))
         elif kind == "discard":
-            for t in tids:
-                rb.set_pending_track(BASE, t, None)
+            bad = [t for t in tids if not sync_task_record(t, lambda t=t: rb.set_pending_track(BASE, t, None))]   # v4.31.13
+            if bad:
+                raise RuntimeError(f"TASK 기록을 쓰지 못함 {bad} → 다시 요청하세요")
         elif kind == "backup":
             _STATE["last_backup_rows"] = []
             run_cpu_backup_and_export(ctt, wb, got)
@@ -884,12 +1143,12 @@ def handle_aa(ctt, wb, rb, req, started_str):
                    + [{"task_id": t, "status": "실패", "note": "백업이 만들어지지 않음"} for t in bad])
             txt = f"백업 받음 {len(ok)} · 받는 중 {len(wait)} · 실패 {len(bad)}"
             if wait:                                   # 남은 것은 '받는 중' — 30번 셀 작업자가 준비되는 대로 받음
-                fin = rb.set_status(BASE, got, "waiting", by="kaggle-cpu-master", remaining=[int(t) for t in wait], results=res, result=txt)
+                fin = rb.set_status(BASE, got, "waiting", by="kaggle-cpu-master", remaining=[int(t) for t in wait], results=res, result=txt,
+                                    waiting_t=time.time())
             else:
                 fin = rb.set_status(BASE, got, "done" if ok else "failed", by="kaggle-cpu-master", results=res, result=txt,
                                     done_at=kst_now().isoformat(timespec="seconds"))
             push_req(got, fin, "relabel/requests")
-            rclone("copy", str(BASE / "relabel/tasks"), _remote("relabel/tasks"))
             _STATE["dirty"] = True
             return
         fin = rb.set_status(BASE, got, "done", by="kaggle-cpu-master", result=f"CPU 마스터 {kind} 완료")
@@ -899,8 +1158,7 @@ def handle_aa(ctt, wb, rb, req, started_str):
     except Exception as e:
         fin = rb.set_status(BASE, got, "failed", by="kaggle-cpu-master", result=f"오류: {e}")
     push_req(got, fin, "relabel/requests")
-    rclone("copy", str(BASE / "relabel/tasks"), _remote("relabel/tasks"))
-    _STATE["dirty"] = True
+    _STATE["dirty"] = True                         # v4.31.13: relabel/tasks 폴더를 통째로 올리지 않음 (TASK 기록은 sync_task_record로만)
 
 
 def main():
@@ -924,6 +1182,8 @@ def main():
     print("✅ 첫 번째 생존 신호 전송 완료" + (" (31번 셀 작업자가 켜져 있어 web/worker_cpu_master.json에만 씀)" if _STATE["lc_peer"] else ""))
     threading.Thread(target=heartbeat_loop, args=(started_str,), daemon=True).start()
 
+    global START_TS
+    START_TS = time.time()                         # v4.31.13: 실행 한도는 준비(받기·첫 생존 신호)가 끝난 뒤부터 셈
     stop_info = None
     try:
         while (time.time() - START_TS) < (MAX_RUN_HOURS * 3600):
@@ -954,16 +1214,30 @@ def main():
                 else:
                     note_skip(req, "CPU 마스터가 처리하지 않는 종류 (31번 셀이 처리)")
 
-            # 2) AA 요청 — 30번 셀 작업자가 살아 있으면 받지 않음
-            if _STATE["aa_peer"] is None:
-                for req in rb.list_requests(BASE):
-                    if req["status"] != "pending" or _STATE["stop_req"] or not mine(wb, req):
-                        continue
-                    kind = req["kind"]
+            # 2) AA 요청 — 숨기기·다시 보이기·새로 고침(tracked.json·상태를 고침)은 취합자만 (배정과 관계없이, v4.32.0)
+            #    그 밖은 30번 셀 작업자가 살아 있으면 받지 않음
+            for req in rb.list_requests(BASE):
+                if req["status"] != "pending" or _STATE["stop_req"]:
+                    continue
+                kind = req["kind"]
+                if kind in AA_STATE_KINDS:
+                    if _STATE["owner"]:
+                        handle_aa(ctt, wb, rb, req, started_str)
+                    continue
+                if _STATE["aa_peer"] is None and mine(wb, req):
                     if kind in AA_DIRECT_KINDS:
                         handle_aa(ctt, wb, rb, req, started_str)
                     else:
                         note_skip(req, "CPU 마스터가 처리하지 않는 종류 (30번 셀이 처리)")
+
+            # 2.4) v4.31.10 (R4): 받는 중 백업 — 30번 셀이 꺼져 있으면 CPU 마스터가 받음 (받으면 아래에서 GPU 워커를 깨움)
+            if not _STATE["stop_req"]:
+                try:
+                    poll_waiting_backups(ctt, wb, rb)
+                except StopRequested:
+                    pass
+                except Exception as e:
+                    print(f"⚠️ 받는 중 백업 확인 실패 (다음 차례에 다시): {e}")
 
             # 2.5) v4.31.7: kaggle_gpu로 배정된 GPU 요청 → GPU 워커 시작 (워커가 직접 받고, 할 일이 없으면 스스로 끝남)
             if gpu_enabled() and not _STATE["stop_req"]:
@@ -972,15 +1246,25 @@ def main():
                     _STATE["busy"] = f"GPU 요청 {n_gpu}건 → GPU 워커"
                     start_gpu_worker_if_needed(reason=f"GPU 요청 {n_gpu}건")
 
-            # 3) 상태 갱신: 내 작업 뒤 · GPU 완료 표시 · 15분마다(31번 셀이 켜져 있으면 그쪽이 함)
+            # 3) 상태 갱신 — v4.32.0 (F3·F14): 취합자만. 내 작업 뒤 · GPU 완료 표시 · 다른 작업자의 DIRTY 표시 · 15분마다
+            #    취합자가 아니면 상태 파일을 쓰지 않고 DIRTY 표시만 남김
             done_markers = list((BASE / "jobs").glob("DONE_*.json"))
-            periodic = (time.time() - _STATE["last_refresh"] > 900) and not _STATE["lc_peer"]
-            if _STATE["dirty"] or done_markers or periodic:
-                try:
-                    aggregate_and_sync_state(ctt, wb, rb)
-                except Exception as e:
-                    print(f"⚠️ 상태 갱신 실패 (다음 차례에 다시): {e}")
-                    _STATE["last_refresh"] = time.time()
+            if _STATE["owner"]:
+                dirty_m = dirty_markers()
+                periodic = time.time() - _STATE["last_refresh"] > 900
+                if _STATE["dirty"] or done_markers or dirty_m or periodic:
+                    try:
+                        aggregate_and_sync_state(ctt, wb, rb)
+                        for f in dirty_m:
+                            f.unlink(missing_ok=True)
+                            rclone("deletefile", _remote(f"jobs/{f.name}"))
+                    except Exception as e:
+                        print(f"⚠️ 상태 갱신 실패 (다음 차례에 다시): {e}")
+                        _STATE["last_refresh"] = time.time()
+            elif _STATE["dirty"]:
+                mk = wb.dirty_mark(BASE, SESSION_ID, why="kaggle-cpu-master 작업 뒤")
+                if rclone("copyto", str(mk), _remote(f"jobs/{mk.name}")).returncode == 0:
+                    _STATE["dirty"] = False
 
             _STATE["busy"] = "대기 중"
             for _ in range(POLL_SEC):

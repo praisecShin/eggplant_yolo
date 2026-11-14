@@ -41,6 +41,7 @@ import kaggle_cpu_master as m
 m.BASE = B
 (B / "backups").mkdir(exist_ok=True)
 (B / "backups/pending_backups.csv").write_text("request_time,server,task_id,task_name,status\n2026-11-13,s,2,b,준비 중\n", encoding="utf-8")
-okk, wait, bad = m.backup_verdict(wb, [{"task_id": 1, "backup_state": "최신"}, {"task_id": 2, "backup_state": "없음"}, {"task_id": 3, "backup_state": "실패"}], [1, 2, 3, 4])
+(B / "backups/x").mkdir(parents=True, exist_ok=True); (B / "backups/x/1.zip").write_text("z")   # v4.31.11 (R10): 받음은 파일이 있어야
+okk, wait, bad = m.backup_verdict(wb, [{"task_id": 1, "backup_state": "최신", "last_file": "backups/x/1.zip"}, {"task_id": 2, "backup_state": "없음"}, {"task_id": 3, "backup_state": "실패"}], [1, 2, 3, 4])
 check((okk, wait, bad) == (["1"], ["2"], ["3", "4"]), f"백업 판정: 받음·받는 중·실패 (만들어지지 않음 포함) {okk, wait, bad}")
 print("RESULT", ok); sys.exit(0 if ok else 1)

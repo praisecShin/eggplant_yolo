@@ -9,7 +9,7 @@
 박스 형식은 cvat_task_tools.load_annotations와 같음: {frame: [(id, label, occluded, (x1, y1, x2, y2), ...)]}
 이미지는 PIL (cvat_task_tools.cvat_frame_getter). numpy만 씀 (scikit-learn 필요 없음).
 """
-__version__ = "4.31.9"
+__version__ = "4.32.0"
 import csv
 import json
 import math

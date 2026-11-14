@@ -1,4 +1,5 @@
 """가짜 Drive(rclone alias → 로컬 폴더) + 가짜 CVAT로 CPU 마스터 순환 시험"""
+import sys as _s, os as _o; _s.path.insert(0, _o.path.dirname(_o.path.abspath(__file__))); from _nbpick import latest   # v4.31.12 (R13)
 import json, os, shutil, sys, time, datetime, threading
 from pathlib import Path
 T = Path(__file__).resolve().parent / "_work_mg"; T.mkdir(exist_ok=True); D = T / "drive"; B = T / "base"
@@ -21,9 +22,9 @@ def req(rid, kind, ids, route=None, sub="requests", **params):
 req("g1", "shape", [4], "kaggle_gpu", sub="relabel/requests")
 req("t1", "train", [], "kaggle_gpu")
 req("c1", "export", [4], "colab")
-shutil.copy(next((PKG / "notebooks").glob("eggplant_kaggle_gpu_worker_v*.ipynb")), (D / "notebooks").mkdir(parents=True, exist_ok=True) or D / "notebooks" / "eggplant_kaggle_gpu_worker_v4.31.7.ipynb")
+shutil.copy(latest(PKG / "notebooks", "eggplant_kaggle_gpu_worker"), (D / "notebooks").mkdir(parents=True, exist_ok=True) or D / "notebooks" / "eggplant_kaggle_gpu_worker_v4.31.7.ipynb")
 (D / "notebooks" / "eggplant_kaggle_gpu_worker_v4.31.2.ipynb").write_text("{}")   # 옛 버전 — 새 것을 골라야 함
-BIN = T / "bin"; BIN.mkdir(exist_ok=True); LOG = T / "kaggle_calls.log"
+BIN = T / "bin"; BIN.mkdir(exist_ok=True); LOG = T / "kaggle_calls.log"; LOG.unlink(missing_ok=True)   # v4.31.13 (R16): 앞선 실행의 호출 기록을 세지 않게
 (BIN / "kaggle").write_text(f"""#!/bin/sh
 echo "$@" >> {LOG}
 if [ "$1 $2" = "kernels push" ]; then cp "$4/kernel-metadata.json" {T}/pushed_meta.json; ls "$4" > {T}/pushed_files.txt; fi
@@ -34,7 +35,7 @@ os.environ.update(KAGGLE_USERNAME="tester", KAGGLE_KEY="k")
 sys.path.insert(0, str(PKG / "notebooks")); sys.path.insert(0, str(B / "scripts"))
 import kaggle_cpu_master as m
 m.ensure_environment = lambda: None; m.setup_credentials = lambda: None
-m.is_daytime_kst = lambda: True; m.MAX_RUN_HOURS = 25 / 3600
+m.is_daytime_kst = lambda: True; m.MAX_RUN_HOURS = float(os.environ.get("MASTER_TEST_SEC", "40")) / 3600   # v4.31.10: 느린 환경은 MASTER_TEST_SEC=90
 AGG = []
 m.aggregate_and_sync_state = lambda ctt, wb, rb: (AGG.append(time.time()), m._STATE.update(dirty=False, last_refresh=time.time()))
 EXPORTED = []
@@ -73,3 +74,5 @@ ok(sorted(files) == ["eggplant_kaggle_gpu_worker_v4.31.7.ipynb", "kernel-metadat
 names = sorted(p.name for p in (D / "requests").glob("REQ_*")) + sorted(p.name for p in (D / "relabel/requests").glob("REQ_*"))
 ok("REQ_t1__train__pending.json" in names and "REQ_g1__shape__pending.json" in names, "GPU 요청은 마스터가 받지 않고 pending 그대로 (워커가 받음)")
 print("RESULT", ok_all)
+
+sys.exit(0 if ok_all else 1)   # v4.31.13: 실패하면 종료 코드도 1

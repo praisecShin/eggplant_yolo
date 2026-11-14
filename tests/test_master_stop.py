@@ -27,7 +27,7 @@ put("web/worker.json", dict(peer, stopping=True))
 sys.path.insert(0, str(PKG / "notebooks")); sys.path.insert(0, str(B / "scripts"))
 import kaggle_cpu_master as m
 m.ensure_environment = lambda: None; m.setup_credentials = lambda: None
-m.is_daytime_kst = lambda: True; m.MAX_RUN_HOURS = 25 / 3600
+m.is_daytime_kst = lambda: True; m.MAX_RUN_HOURS = float(os.environ.get("MASTER_TEST_SEC", "40")) / 3600   # v4.31.10: 느린 환경은 MASTER_TEST_SEC=90
 AGG = []
 m.aggregate_and_sync_state = lambda ctt, wb, rb: (AGG.append(time.time()), m._STATE.update(dirty=False, last_refresh=time.time()))
 EXPORTED = []
@@ -66,3 +66,5 @@ ok("REQ_e1__export__pending.json" in names and len(EXPORTED) == 1, "정지 표�
 r = json.loads((D / "requests/REQ_e1__export__pending.json").read_text()); ok("되돌림" in str(r.get("history")), "되돌린 이유가 이력에 남음")
 ok(json.loads((D / "web/worker.json").read_text())["who"] == "kaggle-cpu-master", "31번 셀이 꺼져 있으면 web/worker.json에 씀")
 print("RESULT", ok_all)
+
+sys.exit(0 if ok_all else 1)   # v4.31.13: 실패하면 종료 코드도 1

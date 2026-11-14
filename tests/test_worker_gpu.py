@@ -1,5 +1,6 @@
 """v4.31.6 30번 통합 작업자 시험: 공정 차례 · LC GPU 맡아 두기 · 한 사람 동시 제한 · 두 앱 요청을 한 셀에서
 사용: python test_worker30.py <패키지의 drive 폴더>   (가짜 Drive 폴더 + 가짜 CVAT · torch·IPython 없이)"""
+import sys as _s, os as _o; _s.path.insert(0, _o.path.dirname(_o.path.abspath(__file__))); from _nbpick import latest   # v4.31.12 (R13)
 import json, os, shutil, sys, time, types, datetime, threading, glob
 from pathlib import Path
 PKG = Path(sys.argv[1]).resolve()
@@ -40,7 +41,7 @@ req("relabel/requests", "RC1", "shape", [3], "B", ago(25)); assign("RC1", "colab
 req("relabel/requests", "RN1", "shape", [5], "B", ago(25))                               # 배정 없음 → 안 받음
 req("requests", "LT1", "train", [], "A", ago(10)); assign("LT1", "kaggle_gpu")
 req("requests", "LB1", "backup", [10], "B", ago(5)); assign("LB1", "kaggle_cpu")           # CPU 마스터 몫
-nb = json.load(open(next((PKG / "notebooks").glob("eggplant_kaggle_gpu_worker_v*.ipynb"))))
+nb = json.load(open(latest(PKG / "notebooks", "eggplant_kaggle_gpu_worker")))
 src = "".join(nb["cells"][2]["source"])
 assert src.startswith("# 30. 작업자"), src[:40]
 cut = src.index("# ---------- 돌기 (v4.31.6)")
@@ -97,4 +98,6 @@ check((B / "web/worker_gpu.json").exists() and (B / "relabel/WORKER_gpu.json").e
       "GPU 워커는 worker_gpu.json에 기록 (30번 셀의 worker.json을 건드리지 않음)")
 check(list((B / "jobs").glob("DONE_*.json")), "끝날 때 jobs/DONE_<세션>.json (CPU 마스터가 상태를 새로 만듦)")
 check(t_loop < 25, f"할 일이 없어 스스로 끝남 ({t_loop:.1f}초)")
+check(not (B / "relabel/state.json").exists() and not (B / "relabel/tracked.json").exists() and not (B / "jobs/STATE_OWNER.json").exists(),
+      "v4.32.0: GPU 워커는 취합자를 맡지 않고 상태 파일(state·tracked)을 쓰지 않음")
 print("통과" if ok else "실패"); sys.exit(0 if ok else 1)

@@ -8,7 +8,7 @@ Drive eggplant_yolo/relabel/ (작업자 셀 30번과 폰 페이지만 씀 — TA
   requests/REQ_<id>__<kind>__<status>.json   폰이 만드는 요청 (web_bridge와 같은 형식)
   WORKER.json           작업자 셀의 심장 박동 (누가·어디서·지금 하는 일)
 """
-__version__ = "4.31.9"   # 가지 자동 라벨링 앱 버전 (노트북 0번 셀 APP_VERSION과 같아야 함)
+__version__ = "4.32.0"   # 가지 자동 라벨링 앱 버전 (노트북 0번 셀 APP_VERSION과 같아야 함)
 
 import datetime
 import functools
@@ -136,21 +136,103 @@ def save_task_record(base, tid, rec):
     return _write_json(root(base) / "tasks" / f"{tid}.json", rec)
 
 
+# v4.32.0 (F3·F14): TASK 기록 고치기는 '최신본 받기 → 고치기 → 그 파일만 올리기' 한 길로만 (sync_record).
+# Colab은 Drive에 바로 쓰므로 그대로 고침. Kaggle(use_remote)·CPU 마스터는 fetch/put으로 Drive와 주고받음.
+# 받기·올리기에 실패한 고치기는 버리지 않고 줄에 남겨 다음 flush_remote 때 같은 순서로 다시 (같은 이력은 두 번 적히지 않음).
+_REMOTE = {"fetch": None, "put": None, "queue": []}
+
+
+def use_remote(fetch, put):
+    """fetch(rel, dest) → 'ok'|'missing'|'fail' · put(rel, src) → bool (rel = BASE 기준 'relabel/tasks/<id>.json')"""
+    _REMOTE.update(fetch=fetch, put=put)
+
+
+def sync_record(base, tid, mutate, fetch, put):
+    """TASK 기록 하나: Drive 최신본을 받아(없으면 빈 기록) → mutate() (로컬 파일을 고침) → 그 파일만 올림.
+    받기·읽기·고치기·올리기 중 하나라도 실패하면 False (Drive는 그대로). 'Drive에 없음'은 fetch가 'missing'일 때만"""
+    rel = f"relabel/tasks/{int(tid)}.json"
+    loc = Path(base) / rel
+    loc.parent.mkdir(parents=True, exist_ok=True)
+    tmp = loc.with_name(f"{loc.name}.fetch.tmp")
+    tmp.unlink(missing_ok=True)
+    got = fetch(rel, tmp)
+    if got == "ok":
+        try:
+            ok = isinstance(json.loads(tmp.read_text(encoding="utf-8")), dict)
+        except Exception:
+            ok = False
+        if not ok:
+            tmp.unlink(missing_ok=True)
+            print(f"⚠️ TASK {tid} 기록: Drive에서 받지 못함(또는 읽을 수 없음) → 이번에는 쓰지 않음")
+            return False
+        os.replace(tmp, loc)
+    elif got == "missing":
+        loc.unlink(missing_ok=True)
+    else:
+        print(f"⚠️ TASK {tid} 기록: Drive 목록·받기 실패 → 이번에는 쓰지 않음")
+        return False
+    try:
+        mutate()
+    except Exception as e:
+        print(f"⚠️ TASK {tid} 기록: 고치기 실패 ({e})")
+        return False
+    if not loc.exists():
+        return True
+    if not put(rel, loc):
+        print(f"⚠️ TASK {tid} 기록: Drive에 올리지 못함")
+        return False
+    return True
+
+
+def _apply(base, tid, fn):
+    """fn(rec) → 고친 rec. Colab(원격 없음): 바로 고침 · 원격: sync_record, 실패하면 줄에 남김 (같은 TASK의 뒤 고치기도 순서대로 줄에)"""
+    def local():
+        rec = task_record(base, tid)
+        save_task_record(base, tid, fn(rec))
+    if not _REMOTE.get("fetch"):
+        local()
+        return task_record(base, tid)
+    q = _REMOTE["queue"]
+    if any(str(t) == str(tid) for _, t, _f in q) or not sync_record(base, tid, local, _REMOTE["fetch"], _REMOTE["put"]):
+        q.append((base, tid, fn))
+    return task_record(base, tid)
+
+
+@_locked
+def flush_remote():
+    """줄에 남은 TASK 기록 고치기를 다시 → 남은 개수 (TASK마다 순서대로, 실패하면 그 TASK는 다음에)"""
+    q, left, stuck = list(_REMOTE["queue"]), [], set()
+    for base, tid, fn in q:
+        if str(tid) in stuck:
+            left.append((base, tid, fn)); continue
+        def local(base=base, tid=tid, fn=fn):
+            rec = task_record(base, tid)
+            save_task_record(base, tid, fn(rec))
+        if not _REMOTE.get("fetch") or not sync_record(base, tid, local, _REMOTE["fetch"], _REMOTE["put"]):
+            stuck.add(str(tid)); left.append((base, tid, fn))
+    _REMOTE["queue"][:] = left
+    return len(left)
+
+
 @_locked
 def add_history(base, tid, **entry):
-    rec = task_record(base, tid)
-    rec["history"] = (rec.get("history") or []) + [{"time": _now(), **entry}]
-    rec["history"] = rec["history"][-30:]
-    save_task_record(base, tid, rec)
-    return rec
+    item = {"time": _now(), **entry}
+
+    def fn(rec):
+        h = rec.get("history") or []
+        if item not in h:                          # 다시 할 때 두 번 적히지 않게
+            h = h + [item]
+        rec["history"] = h[-30:]
+        return rec
+    return _apply(base, tid, fn)
 
 
 @_locked
 def set_pending_track(base, tid, pending):
-    rec = task_record(base, tid)
-    rec["track_pending"] = pending
-    save_task_record(base, tid, rec)
-    return rec
+    def fn(rec):
+        rec["track_pending"] = pending
+        return rec
+    return _apply(base, tid, fn)
 
 
 def stale_pending(base):

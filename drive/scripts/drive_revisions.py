@@ -10,7 +10,7 @@ runs/<이름>_A/, runs/<이름>_B/ 처럼 따로 내려받는다. 원본 파일�
 - 사용자는 '마지막으로 수정한 Google 계정'으로 구분한다. 두 사람이 같은 계정으로 Drive를 연결했다면 나눌 수 없다.
 - revisions.list가 버전이 아주 많은 파일에서는 일부만 돌려줄 수 있다 (Drive API 문서).
 """
-__version__ = "4.31.9"
+__version__ = "4.32.0"
 
 import csv
 import datetime as _dt

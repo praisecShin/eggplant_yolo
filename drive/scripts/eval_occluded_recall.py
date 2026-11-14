@@ -12,7 +12,7 @@
 사용법
   python eval_occluded_recall.py --model runs/detect/train/weights/best.pt --dataset dataset --imgsz 1920
 """
-__version__ = "4.31.9"   # 가지 자동 라벨링 앱 버전 (노트북 0번 셀 APP_VERSION과 같아야 함)
+__version__ = "4.32.0"   # 가지 자동 라벨링 앱 버전 (노트북 0번 셀 APP_VERSION과 같아야 함)
 import argparse
 import csv
 from collections import defaultdict

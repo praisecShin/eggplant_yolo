@@ -9,7 +9,7 @@
     device=str:cpu        "cpu" / "0"(GPU) / "mps"(Mac)
     tile=bool:false       true면 이미지를 위·아래로 겹쳐 잘라 추론 (작은 꽃봉오리용)
 """
-__version__ = "4.31.9"   # 가지 자동 라벨링 앱 버전 (노트북 0번 셀 APP_VERSION과 같아야 함)
+__version__ = "4.32.0"   # 가지 자동 라벨링 앱 버전 (노트북 0번 셀 APP_VERSION과 같아야 함)
 import cvat_sdk.auto_annotation as cvataa
 import PIL.Image
 

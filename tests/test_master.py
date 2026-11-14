@@ -19,15 +19,27 @@ req("c1", "export", [4], "colab")             # colab 배정 → 안 받음
 req("n1", "export", [4])                      # 배정 없음 → 안 받음
 req("u1", "upload", [4], "kaggle_cpu")        # 처리 안 하는 종류
 req("g1", "shape", [4], "kaggle_cpu")         # GPU 꺼짐
-req("a1", "hide", [4], "kaggle_cpu", sub="relabel/requests")   # AA — 30번 셀이 살아 있으면 안 받음
+req("a1", "discard", [4], "kaggle_cpu", sub="relabel/requests")   # AA — 30번 셀이 살아 있으면 안 받음
+req("h1", "hide", [4], "colab", sub="relabel/requests")      # v4.32.0: 숨기기는 취합자(마스터)가 배정과 관계없이 받음
 put("jobs/STOP_MASTER.json", {"until": None, "reason": "11/6 hold", "by": "james"})
 peer = {"who": "colab-31", "session": "colab_x", "host": "Colab", "heartbeat": now.isoformat(), "stopping": False}
 put("web/worker.json", peer); put("relabel/WORKER.json", dict(peer, who="colab-30"))
+def _beat():                                   # v4.31.13: 가짜 동료도 생존 신호를 계속 보냄 (느린 환경에서 꺼진 것으로 보이지 않게)
+    import time as _t
+    while True:
+        _t.sleep(15)
+        hb = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        for rel, who in (("web/worker.json", "colab-31"), ("relabel/WORKER.json", "colab-30")):
+            try:
+                tmp = D / (rel + ".tmp"); tmp.write_text(json.dumps(dict(peer, who=who, heartbeat=hb))); os.replace(tmp, D / rel)
+            except OSError:
+                pass
+import threading as _th; _th.Thread(target=_beat, daemon=True).start()
 
 sys.path.insert(0, str(PKG / "notebooks")); sys.path.insert(0, str(B / "scripts"))
 import kaggle_cpu_master as m
 m.ensure_environment = lambda: None; m.setup_credentials = lambda: None
-m.is_daytime_kst = lambda: True; m.MAX_RUN_HOURS = 25 / 3600
+m.is_daytime_kst = lambda: True; m.MAX_RUN_HOURS = float(os.environ.get("MASTER_TEST_SEC", "40")) / 3600   # v4.31.10: 느린 환경은 MASTER_TEST_SEC=90
 AGG = []
 m.aggregate_and_sync_state = lambda ctt, wb, rb: (AGG.append(time.time()), m._STATE.update(dirty=False, last_refresh=time.time()))
 EXPORTED = []
@@ -69,7 +81,11 @@ ok(sorted(x[1] for x in EXPORTED) == ["eggplant_G5_261026_1_2_vf.zip", "eggplant
 ok(not (D / "jobs/gpu_queue.json").exists(), "GPU 꺼짐 → gpu_queue.json 안 만듦")
 w = json.loads((D / "web/worker.json").read_text()); ok(w["session"] == "colab_x", "31번 셀의 web/worker.json 덮어쓰지 않음")
 ok((D / "web/worker_cpu_master.json").exists(), "CPU 마스터는 web/worker_cpu_master.json에 기록")
-ok((D / "relabel/requests/REQ_a1__hide__pending.json").exists(), "30번 셀이 살아 있어 AA 요청 안 받음")
+ok((D / "relabel/requests/REQ_a1__discard__pending.json").exists(), "30번 셀이 살아 있어 AA 요청(버리기) 안 받음")
+ok((D / "relabel/requests/REQ_h1__hide__done.json").exists(), "v4.32.0: 숨기기는 취합자인 마스터가 받음 (30번 셀이 살아 있어도)")
+ok(json.loads((D / "jobs/STATE_OWNER.json").read_text()).get("role") == "cpu_master", "v4.32.0: 마스터가 취합자 임대를 가짐")
 ok(not (D / "jobs/STOP_MASTER.json").exists() and (D / "jobs/STOP_MASTER_released.json").exists(), "수동 시작이 기한 없는 정지 표시를 풀고 기록")
 done = json.loads((D / "requests/REQ_e1__export__done.json").read_text()); ok(done.get("taken_host") == "kaggle_cpu", "id로 받은 기록(taken_host)")
 print("RESULT", ok_all)
+
+sys.exit(0 if ok_all else 1)   # v4.31.13: 실패하면 종료 코드도 1

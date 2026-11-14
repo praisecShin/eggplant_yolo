@@ -8,7 +8,7 @@
 
 노트북 20번 셀에서 run_diagnosis(...)를 부른다. CVAT·Drive의 라벨은 바꾸지 않는다.
 """
-__version__ = "4.31.9"   # 가지 자동 라벨링 앱 버전 (노트북 0번 셀 APP_VERSION과 같아야 함)
+__version__ = "4.32.0"   # 가지 자동 라벨링 앱 버전 (노트북 0번 셀 APP_VERSION과 같아야 함)
 import io
 import numpy as np
 

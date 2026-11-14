@@ -19,7 +19,7 @@ CVAT에 올리기
   또는 명령줄로 지정 (Colab) python yolo_track_to_cvat.py --model best.pt --video a.mp4 --reference a.zip
   여러 영상을 한 번에:       --video 와 --reference 를 같은 순서로 여러 개 지정
 """
-__version__ = "4.31.9"   # 가지 자동 라벨링 앱 버전 (노트북 0번 셀 APP_VERSION과 같아야 함)
+__version__ = "4.32.0"   # 가지 자동 라벨링 앱 버전 (노트북 0번 셀 APP_VERSION과 같아야 함)
 import argparse
 import csv
 import zipfile
