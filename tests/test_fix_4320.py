@@ -84,7 +84,7 @@ check(len(jr(D / "relabel/tasks/5.json")["history"]) == 4, "같은 이력은 두
 rb._REMOTE.update(fetch=None, put=None)
 
 # ---- CPU 마스터: 올리기 전 소유 확인 · 받은 뒤 확인 · 임대
-sys.path.insert(0, str(PKG / "notebooks"))
+sys.path.insert(0, str(PKG / "notebooks" / "K_kaggle"))
 import kaggle_cpu_master as m
 m.BASE = B
 m._remote = lambda rel="": str(D / rel)
@@ -149,7 +149,7 @@ jw(D / "jobs/DIRTY_s9.json", {"session": "s9"})
 check([p.name for p in m.dirty_markers()] == ["DIRTY_s9.json"], "취합자: 다른 작업자의 표시를 받음")
 
 # ---- 30번 셀 정적 확인
-nb = json.load(open(latest(PKG / "notebooks", "eggplant_yolo_colab"), encoding="utf-8"))
+nb = json.load(open(latest(PKG / "notebooks" / "A0_colab", "eggplant_yolo_colab"), encoding="utf-8"))
 code = ["".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code"]
 c30 = next(s for s in code if s.startswith("# 30.")); c28 = next(s for s in code if s.startswith("# 28."))
 check("'relabel/**'" not in c30.split("def _rl_push")[1] and "relabel/tasks/{tid}.json" not in c30, "30번: relabel/**·TASK 기록 파일을 통째로 올리지 않음")
@@ -157,7 +157,7 @@ check(c30.count("if not _own_state():") >= 3 and "rb.use_remote(_kg_fetch, _kg_p
 check("_rl_claim(r)" in c30 and "_lc_claim(ids)" in c30 and "wb.request_owned(cur, req, SESSION_ID)" in c30, "30번: 받기 확인 · 쓰기 전 소유 확인")
 check("wb.may_adopt(r, SESSION_ID, _alive)" in c30 and "_own_state(stopping=True)" in c30, "30번: 꺼진 세션 것만 넘겨받음 · 멈출 때 내려놓음")
 check("_own28 = False" in c28 and "if _own28 and wb is not None and hasattr(wb, 'settle')" in c28, "28번: 다른 작업자가 취합자면 상태 파일·받는 중 정리를 하지 않음")
-gpu = json.load(open(latest(PKG / "notebooks", "eggplant_kaggle_gpu_worker"), encoding="utf-8"))
+gpu = json.load(open(latest(PKG / "notebooks" / "K_kaggle", "eggplant_kaggle_gpu_worker"), encoding="utf-8"))
 g30 = "".join(gpu["cells"][2]["source"])
 check(g30.replace("W_ROLE       = 'gpu'", "W_ROLE       = 'all'", 1) == c30, "GPU 워커 30번 셀 = Colab 30번 셀 (W_ROLE만 다름)")
 print("RESULT", ok); sys.exit(0 if ok else 1)

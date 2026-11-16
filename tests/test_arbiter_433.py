@@ -1053,5 +1053,187 @@ b4 = copy.deepcopy(b_); b4.f["arb/locks/train/m.json"].obj["state"] = "running"
 check(signature(b2) != g0 and signature(b3) != g0 and signature(b4) != g0,
       "비교 함수는 틀린 채택 버전·남은 채택 대기·남은 실행 잠금을 모두 잡음 (N5)")
 
+
+# ---------------------------------------------------------------- b11 회귀 (0e)
+check(A.to_ts("2026-11-14T01:00:00.000Z") == 1794618000.0 and A.to_ts(5) == 5.0 and A.to_ts("x", 7) == 7.0 and A.to_ts(None, 3) == 3.0,
+      "시각: 숫자·ISO 문자열 모두 초로, 해석 못 하면 기본값")
+s = Sim(); s.grant(1); s.worker("MS1", ["master"]); s.worker("G1", ["gpu"])
+s.round(); s.round()
+s.request("r1", "track", [1]); s.request("r2", "track", [2], created="2026-11-14T01:00:00Z")
+s.put(A.P_WORKERS + "bad__x.json", {"session": "B", "caps": "gpu", "hb": "zz"})
+s.round(unknown={"config"})
+check(A.P_INTAKE + "r1.json" not in s.f, "사람 목록이 오래됨('config' 모름) → 새 요청을 접수하지 않음 (Q3)")
+s.round(); s.round()
+check(A.P_INTAKE + "r1.json" in s.f and A.P_INTAKE + "r2.json" in s.f, "다시 읽히면 접수 — 만든 시각이 숫자·문자열로 섞여 있어도 정렬에서 죽지 않음 (Q7)")
+wk = s.f[A.P_ARBITER].obj["wake"]
+check("G1" in wk["workers"] and "B" not in wk["workers"] and "executor_wait" in wk,
+      "회차 기록의 깨우기 요약에 살아 있는 실행기 목록·실행기 대기 수 (Q9), 형태가 틀린 실행기 파일은 버림")
+
+# ---------------------------------------------------------------- b12 회귀 (0f)
+s = Sim(); s.grant(1); s.worker("MS1", ["master"]); s.worker("G1", ["gpu"])
+s.round(); s.round()
+s.put(A.P_WORKERS + "bad__x.json", {"session": "bad", "fp": [], "caps": ["cpu"], "hb": s.now})
+s.put(A.P_WORKERS + "bad2__x.json", {"session": "bad2", "fp": "f", "caps": [1], "hb": s.now})
+s.put("requests/REQ_badt__track__pending.json", {"tasks": [[1]], "created": s.now})
+s.put(A.P_SIGNALS + "cancel__p__900.json", {"rid": {"x": 1}})
+s.put(A.P_ASK + "G1__x__900.json", {"type": "end", "epoch": "abc", "rid": "r", "task": "1"})
+s.request("r1", "track", [1])
+r = s.round(); s.round()
+bad = sorted(a["path"] for a in r.alerts if a.get("kind") == "bad_input") if hasattr(r, "alerts") else None
+check(A.P_INTAKE + "r1.json" in s.f, "내부 필드 형태가 틀린 실행기·요청·신호·보고가 있어도 정상 요청은 접수됨 (R1)")
+alerts = [p for p in s.f if p.startswith(A.P_ALERT)]
+check((s.f.get(A.P_INTAKE + "badt.json") or FileRec({})).obj.get("ok") is False
+      and s.f[A.P_INTAKE + "badt.json"].obj["reason"] == "bad_input:tasks",
+      "형태가 틀린 요청은 '거절' 접수 기록(이유: bad_input)을 남기고 처리하지 않음 (앱에 이유가 보임)")
+for kind, o, want in [("worker", {"fp": []}, "fp"), ("worker", {"caps": [1]}, "caps"), ("worker", {"stopping": "yes"}, "stopping"),
+                      ("request", {"tasks": [None]}, "tasks"), ("request", {"name": ["a"]}, "name"),
+                      ("signal", {"until": "soon"}, "until"), ("signal", {"stop_id": []}, "stop_id"),
+                      ("ask", {"type": "end", "gen": "x"}, "gen"), ("ask", {"type": 3}, "type"),
+                      ("worker", {"fp": "a", "caps": ["cpu"], "hb": 1}, ""), ("request", {"tasks": ["1", 2]}, "")]:
+    check(A.input_problem(kind, o) == want, f"형태 확인 {kind} {o} → {want or '정상'}")
+# R6: 낮에 야간 승인된 일이 실행기를 기다리면 '밤에도 할 수 있는 대기'로 적음
+s = Sim(now=DAY0 + 18 * 3600 + 59 * 60); s.grant(1); s.worker("MS1", ["master"])
+s.round(); s.round()
+s.request("d1", "dataset", [], name="ds"); s.request("d2", "dataset", [], name="ds2")
+s.round()
+s.signal("approve_night", rid="d1"); s.round(); s.round()
+wk = s.f[A.P_ARBITER].obj["wake"]
+check(wk["executor_wait"] == 2 and wk["executor_wait_night"] == 1, "실행기 대기 2건 중 야간 승인된 1건만 '밤에도 할 수 있는 대기' (R6)")
+
+# R4: 옛 방식에서 남은 요청은 새 심판이 접수하지 않음
+s = Sim(); s.grant(1); s.worker("MS1", ["master"]); s.worker("G1", ["gpu"])
+s.round(); s.round()
+s.request("o1", "track", [1], status="taken"); s.request("o2", "track", [2], status="transition"); s.request("n1", "track", [3])
+s.round(); s.round()
+check(A.P_INTAKE + "n1.json" in s.f and A.P_INTAKE + "o1.json" not in s.f and A.P_INTAKE + "o2.json" not in s.f,
+      "옛 '받음'·'전환 확인 필요' 요청은 접수하지 않고 새 '대기' 요청만 접수 (R4)")
+check(sorted(s.f[A.P_ARBITER].obj["check"]["orphans"]) == ["o1", "o2"], "남은 옛 요청은 회차 기록의 점검 목록(orphans)에 보임 → CTRL앱")
+
+# ---------------------------------------------------------------- b13 회귀 (0g)
+s = Sim(); s.grant(1); s.worker("MS1", ["master"]); s.worker("C1", ["cpu"]); s.worker("G1", ["gpu"])
+s.round(); s.round()
+s.request("bn", "create16", [], name=123, server="cvat")
+s.request("ok1", "track", [1])
+s.round(); s.round()
+check(A.P_INTAKE + "ok1.json" in s.f and s.f[A.P_INTAKE + "bn.json"].obj["ok"] is False and s.assigns("ok1", "active"),
+      "이름이 숫자인 만들기 요청은 '거절'로 접수하고 옆의 정상 요청은 접수·배정 (S1)")
+for kind, o, want in [("request", {"name": 123}, "name"), ("request", {"server": True}, "server"),
+                      ("signal", {"stop_id": 5}, "stop_id"), ("signal", {"origin_signal": 1}, "origin_signal"),
+                      ("signal", {"force": "yes"}, "force"), ("signal", {"until": "2026-11-14T01:00:00Z"}, ""),
+                      ("ask", {"type": "end", "decision": 7}, "decision"), ("ask", {"type": "release", "assign": 3}, "assign"),
+                      ("ask", {"type": "end", "task": 12, "epoch": "3"}, ""), ("ask", {"rid": "r"}, "type"),
+                      ("request", {"tasks": [1, "2"], "name": "a"}, "")]:
+    check(A.input_problem(kind, o) == want, f"형태 표 {kind} {o} → {want or '정상'}")
+
+# ---------------------------------------------------------------- b14 회귀 (0h)
+for kind, o, want in [("ask", {"type": "done_job", "current_change": 1}, "current_change"),
+                      ("ask", {"type": "done_job", "current_change": {"type": "model", "name": 3}}, "current_change"),
+                      ("ask", {"type": "done_job", "current_change": {"type": "nope", "name": "m"}}, "current_change"),
+                      ("ask", {"type": "done_job", "current_change": {"type": "model", "name": "m", "version": "v1"}}, ""),
+                      ("ask", {"type": "done_run", "train_keys": [["a"]]}, "train_keys"),
+                      ("vfiles", {"files": [], "verified": True}, "files"), ("vfiles", {"files": {}, "keys": "a"}, "keys"),
+                      ("grant", {"epoch": "x", "session": "s"}, "epoch"), ("person", {"id": "M1", "account": "a", "perms": "wake"}, "perms")]:
+    check(A.input_problem(kind, o) == want, f"형태 표 {kind} {o} → {want or '정상'}")
+s = Sim(); s.grant(1); s.worker("MS1", ["master"]); s.worker("G1", ["gpu"])
+s.f[A.P_GRANT] = FileRec({"epoch": "x", "session": "MS1"}, G, s.now, s.now)
+r = s.round()
+check("not_arbiter" in r.notes, "자격 파일의 epoch가 숫자가 아니면 자격 없음으로 보고 판정하지 않음 (예외 없이)")
+s = Sim(); s.grant(1); s.worker("MS1", ["master"]); s.round(); s.round()
+s.signal("stop", until="2026-11-14T15:00:00Z"); s.round(); s.round()
+h = [x.obj for p, x in s.f.items() if p.startswith(A.P_HOLD)]
+check(h and isinstance(h[0]["until"], float), "정지 기한이 ISO 문자열이어도 초로 바꿔 둠 (만료 계산에서 죽지 않음)")
+
+# ---------------------------------------------------------------- b15 회귀 (0i)
+for kind, o, want in [("ask", {"type": "done_job", "current_change": {"type": []}}, "current_change"),
+                      ("ask", {"type": "done_job", "current_change": {"type": {"a": 1}}}, "current_change"),
+                      ("person", {"account": "a0@x", "perms": ["request"], "status": "active"}, "id"),
+                      ("person", {"id": "M1", "perms": []}, "account"), ("person", {"id": "M1", "account": "a"}, "perms"),
+                      ("vfiles", {"files": {}, "task_keys": 1}, "task_keys"), ("vfiles", {"files": {}, "task_keys": ["a"]}, "")]:
+    check(A.input_problem(kind, o) == want, f"형태 표 {kind} {o} → {want or '정상'} (V1·V2)")
+class Weird(dict):
+    def get(self, *a):
+        raise RuntimeError("boom")
+check(A.input_problem("ask", Weird(type="x")) == "unreadable", "형태 확인은 어떤 입력에도 예외를 내지 않음 (V1)")
+s = Sim(); s.grant(1); s.worker("MS1", ["master"]); s.worker("G1", ["gpu"])
+s.round(); s.round()
+s.put("datasets/ds/CURRENT.json", {"type": "dataset", "name": "ds", "version": "v1", "adopted_gen": 1, "by_session": "MS1", "by_epoch": 1})
+s.put("datasets/ds/v/v1/_files.json", {"files": {}, "task_keys": 1})
+s.request("t1", "train", [], model="m", dataset="ds")
+s.request("ok1", "track", [1])
+r = s.round(); s.round()
+check(A.P_INTAKE + "ok1.json" in s.f and s.assigns("ok1", "active"),
+      "데이터셋 목록의 task_keys가 숫자여도 판정이 죽지 않고 정상 요청은 배정 (V2)")
+check(not s.assigns("t1", "active"), "형태가 틀린 데이터셋 목록으로는 학습을 시작하지 않음 ('모름')")
+
+# ---------------------------------------------------------------- b17 회귀 (0k)
+def x1_case(edit):
+    s = Sim(); s.grant(1); s.worker("MS1", ["master"]); s.worker("G1", ["gpu"]); s.round(); s.round()
+    sid = s.signal("stop")
+    r = s.round(crash_after=1)                     # 계획만 쓰고 멈춤
+    pp = A.P_PLAN + sid + ".json"
+    assert pp in s.f and s.done(sid) is None, r.writes[:2]
+    if edit:
+        o = copy.deepcopy(s.o(pp)); edit(o); s.f[pp] = FileRec(o, A0, s.now, s.now)
+    s.tick(30)
+    r = s.round()
+    return s, sid, r
+s, sid, r = x1_case(None)
+check(not r.protect and (s.done(sid) or {}).get("result") == "done" and any(p.startswith(A.P_HOLD) for p in s.f),
+      "정지 계획을 쓰고 멈춘 뒤 이어서 하면 보류까지 만들고 끝냄 (정상 계획은 보호 모드 아님)")
+for desc, ed in [("효과 일부 삭제 ['gpu']", lambda o: o.update(effects=["gpu"])),
+                 ("효과 중복", lambda o: o.update(effects=["hold", "hold", "gpu"])),
+                 ("효과 바꿔치기", lambda o: o.update(effects=["unhold", "gpu"])),
+                 ("효과 순서 바뀜", lambda o: o.update(effects=["gpu", "hold"])),
+                 ("sid 다름", lambda o: o.update(sid="stop__p__99")),
+                 ("종류 다름", lambda o: o.update(kind="release")),
+                 ("대상 다름", lambda o: o.update(target="x"))]:
+    s, sid, r = x1_case(ed)
+    bad = [w.path for w in r.writes if w.path != A.P_ARBITER and not w.path.startswith(A.P_ALERT)]
+    check(r.protect and not bad and s.done(sid) is None and not any(p.startswith(A.P_HOLD) for p in s.f),
+          f"정지 계획의 {desc} → 보호 모드, 완료·보류·배정을 쓰지 않음 (X1)")
+s, sid, r = x1_case(lambda o: o.update(effects=["gpu"]))
+s.request("t99", "track", [99]); s.tick(30); r = s.round()
+check(r.protect and not s.assigns("t99", "active"), "효과가 빠진 정지 계획이 남아 있는 동안 새 배정 없음 (X1 재현 조건)")
+
+# ---------------------------------------------------------------- b18 회귀 (0l)
+def y1_case(edit, owner=M2A, people=None):
+    s = approved_sim()
+    lk = s.lock(7)
+    s.kill("E1"); s.tick(200); s.round()                    # 격리, 선택은 아직 닫힘
+    sid = s.signal("confirm_choice", owner=owner, task="7", decision=lk["decision"], choice="ok", force=True)
+    s.tick(20); s.round(crash_after=1)                      # 계획만 쓰고 멈춤
+    pp = A.P_PLAN + sid + ".json"
+    assert pp in s.f and s.done(sid) is None
+    if edit:
+        o = copy.deepcopy(s.o(pp)); edit(o); s.f[pp] = FileRec(o, A0, s.now, s.now)
+    if people is not None:
+        s.people = people
+    s.tick(20)
+    return s, sid, s.round()
+s, sid, r = y1_case(None)
+check(not r.protect and s.lock(7).get("state") == "quarantine" and "choice_not_open" in str(s.done(sid)),
+      "일반 사용자의 강제 해제 계획을 이어 해도 무효 (정상 계획)")
+s, sid, r = y1_case(lambda o: o.update(admin=True))
+check(s.lock(7).get("state") == "quarantine" and "choice_not_open" in str(s.done(sid)) and not r.protect,
+      "계획의 admin만 true로 바뀌어도 지금 신호 소유자가 관리자가 아니면 강제 해제 무효 (Y1)")
+s, sid, r = y1_case(lambda o: o.update(requester="M1", admin=True))
+check(r.protect and any(x["why"] == "plan_requester_mismatch" for x in r.protect) and s.lock(7).get("state") == "quarantine",
+      "계획의 요청자가 신호 소유자와 다르면 보호 모드 (Y1)")
+s, sid, r = y1_case(lambda o: o.update(admin="yes"))
+check(r.protect and any(x["why"] in ("admin", "plan_admin_bad") for x in r.protect), "계획의 admin이 참·거짓이 아니면 보호 모드 (Y1)")
+demoted = [dict(PEOPLE[0], role="user"), PEOPLE[1]]
+s, sid, r = y1_case(None, owner=A0, people=demoted)
+check(not r.protect and s.lock(7).get("state") == "quarantine",
+      "계획 뒤 관리자에서 내려간 사람의 강제 해제 → 무효 (계획과 지금 권한 둘 다 관리자여야)")
+s, sid, r = y1_case(None, owner=A0)
+check(not r.protect and s.lock(7).get("state") == "free", "관리자의 강제 해제 계획을 이어 하면 풀림 (정상)")
+
+s = basic(); s.worker("E1", ["gpu"])
+s.request("dup1", "track", [41]); s.tick(5); s.request("dup1", "track", [41], app="relabel/requests/")
+r = s.round(); s.tick(20); r2 = s.round()
+check(len(s.assigns("dup1")) == 1 and s.intake("dup1").get("ok") is not None
+      and any(isinstance(x.obj, dict) and x.obj.get("kind") == "duplicate_request" for p_, x in s.f.items() if p_.startswith(A.P_ALERT)),
+      "같은 요청 ID 파일이 둘이어도 접수·배정은 하나, 알림을 남김 (Y4)")
+
 print("RESULT", ok)
 sys.exit(0 if ok else 1)

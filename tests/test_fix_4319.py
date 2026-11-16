@@ -36,7 +36,7 @@ check(sc["index"] == {"10": "images", "11": "images", "20": "images", "21": "ima
 # F17
 check(ts.pick_frames({"frames": [0, 1, 2], "boxes": {}}, 1) == [1], "SIM_FRAMES = 1이면 가운데 한 장")
 # F1: CPU 마스터 백업 판정
-sys.path.insert(0, str(PKG / "notebooks"))
+sys.path.insert(0, str(PKG / "notebooks" / "K_kaggle"))
 import kaggle_cpu_master as m
 m.BASE = B
 (B / "backups").mkdir(exist_ok=True)

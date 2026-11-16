@@ -1,0 +1,119 @@
+first {
+  queued: { found: 1, queued: 1 },
+  error: 'fake Drive failure',
+  pending: 1
+}
+second {
+  queued: { found: 1, queued: 1 },
+  export: 2,
+  backup: 0,
+  backup_skipped: 0,
+  requests: [
+    {
+      id: '20261115_111000_gavc3vp',
+      kind: 'export',
+      n: 1,
+      merged: undefined,
+      existed: undefined
+    },
+    {
+      id: '20261115_112000_ga1lwwy',
+      kind: 'export',
+      n: 1,
+      merged: undefined,
+      existed: undefined
+    }
+  ],
+  waiting: undefined,
+  pending: 0
+}
+requests [ [ '11' ], [ '11' ] ]
+same_task_flush {
+  export: 1,
+  backup: 0,
+  backup_skipped: 0,
+  requests: [
+    {
+      id: '20261115_112000_ga71ya0',
+      kind: 'export',
+      n: 1,
+      merged: 1,
+      existed: undefined
+    }
+  ],
+  waiting: undefined,
+  pending: 0
+}
+same_task_payload [ [ '11' ] ]
+broken_read { events: {}, batches: {} }
+broken_overwritten {
+  events: {
+    'export:22:2': {
+      kind: 'export',
+      id: 22,
+      name: 'x',
+      updated: '2',
+      at: '2026-11-15T02:20:00.000Z'
+    }
+  },
+  batches: {}
+}
+ledger_fail {
+  queued: { found: 1, queued: 1 },
+  error: 'fake Drive failure',
+  pending: 1
+}
+index_lag_retry {
+  queued: { found: 0 },
+  export: 1,
+  backup: 0,
+  backup_skipped: 0,
+  requests: [
+    {
+      id: '20261115_113000_gavc3vp',
+      kind: 'export',
+      n: 1,
+      merged: undefined,
+      existed: true
+    }
+  ],
+  waiting: undefined,
+  pending: 0
+}
+physical_duplicate_names [ 'REQ_20261115_113000_gavc3vp__export__pending.json' ]
+snapshot_failure fake Drive failure
+two_events_real {
+  queued: { found: 1, queued: 1 },
+  export: 1,
+  backup: 0,
+  backup_skipped: 0,
+  requests: [
+    {
+      id: '20261115_120000_ga14em2',
+      kind: 'export',
+      n: 1,
+      merged: 1,
+      existed: undefined
+    }
+  ],
+  waiting: undefined,
+  pending: 0
+}
+two_events_payload [ [ '11' ] ]
+evalmachine.<anonymous>:58
+    throw e;
+    ^
+
+Error: auto_pending.json 형태가 틀림 (events) — 관리자가 확인할 때까지 수집을 멈춤 (스냅숏 그대로)
+    at readPending_ (evalmachine.<anonymous>:480:18)
+    at queueHits_ (evalmachine.<anonymous>:496:16)
+    at queueAutoEvents_ (evalmachine.<anonymous>:490:10)
+    at collect_ (evalmachine.<anonymous>:244:33)
+    at Object.collect (evalmachine.<anonymous>:54:11)
+    at Object.<anonymous> (/mnt/c/Users/user/Project/eggplant_v4.33.0/rLog/b19_b18_collector_compat.js:75:103)
+    at Module._compile (node:internal/modules/cjs/loader:1730:14)
+    at Object..js (node:internal/modules/cjs/loader:1895:10)
+    at Module.load (node:internal/modules/cjs/loader:1465:32)
+    at Function._load (node:internal/modules/cjs/loader:1282:12)
+
+Node.js v22.16.0

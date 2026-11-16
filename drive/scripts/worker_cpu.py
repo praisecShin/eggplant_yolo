@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 import json
 import sys
 import time
@@ -16,7 +17,7 @@ from typing import Callable, Dict, List, Optional
 
 import access
 import executor as X
-from arb_io import LocalStore, RcloneStore
+from arb_io import Beat, LocalStore, RcloneStore
 
 # kind → {'prepare','commit','fetch','publish','run'} 중 필요한 함수
 HANDLERS: Dict[str, Dict[str, Callable]] = {}
@@ -66,22 +67,27 @@ def load_accounts(path: str) -> Dict[str, str]:
 
 def run(store, accounts: Dict[str, str], caps: List[str], session: Optional[str] = None, interval: float = 20,
         hb_every: float = 60, max_steps: Optional[int] = None, stop: Callable[[], bool] = lambda: False,
-        sleep=time.sleep, clock=time.time) -> X.Executor:
+        sleep=time.sleep, clock=time.time, join_timeout: float = 90) -> X.Executor:
     access_env = access.mode()
     if access_env != "exec":
         raise access.AccessError("작업 프로세스는 EGG_ACCESS=exec에서만 돕니다")
     fp = access.machine_fingerprint()
     ex = X.Executor(store, session or access.new_session_id("cpu", fp), fp, caps, accounts, Dispatch(), clock=clock)
-    last_hb, n = 0.0, 0
-    while not stop() and (max_steps is None or n < max_steps):
-        if clock() - last_hb >= hb_every:
-            ex.heartbeat()
-            last_hb = clock()
-        ex.step()
-        n += 1
-        if max_steps is None or n < max_steps:
-            sleep(interval)
-    ex.heartbeat(stopping=True)
+    # 생존 신호는 일하는 줄과 따로 — 긴 처리 중에도 보냄 (Q1). '끝남'도 같은 스레드가 마지막에 씀 (R7)
+    beat = Beat(ex.heartbeat, hb_every, final=lambda: ex.heartbeat(stopping=True))
+    beat.start()
+    n = 0
+    try:
+        while not stop() and (max_steps is None or n < max_steps):
+            ex.step()
+            n += 1
+            if max_steps is None or n < max_steps:
+                sleep(interval)
+    finally:
+        beat.stop()
+        beat.join(timeout=join_timeout)               # 저장소 쓰기 한도보다 길게 기다림
+        if beat.is_alive():
+            ex.notes.append("beat_join_timeout")    # 다른 줄에서 쓰지 않음 — 생존 신호가 3분 뒤 끊겨 정리됨
     return ex
 
 
@@ -92,9 +98,11 @@ def main(argv=None) -> int:
     ap.add_argument("--caps", default="cpu", help="쉼표로 나눈 능력 (cpu, agg)")
     ap.add_argument("--session", default=None)
     ap.add_argument("--once", action="store_true")
+    ap.add_argument("--stop-file", default=None, help="이 파일이 생기면 지금 단계를 마치고 끝남 (마스터가 만듦)")
     a = ap.parse_args(argv)
+    stop = (lambda: Path(a.stop_file).exists()) if a.stop_file else (lambda: False)
     run(make_store(a.base), load_accounts(a.accounts), [c for c in a.caps.split(",") if c], a.session,
-        max_steps=1 if a.once else None)
+        max_steps=1 if a.once else None, stop=stop)
     return 0
 
 

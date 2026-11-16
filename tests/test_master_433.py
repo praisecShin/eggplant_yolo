@@ -282,6 +282,206 @@ check(ran == ["c1"] and w.results("c1") == [("run", "done")], "worker_cpu: 등�
 check(w.results("c2") == [("run", "failed:NoHandler")], "처리기가 없는 종류는 '실패(처리기 없음)'로 보고 (거짓 완료 없음)")
 os.environ.pop(access.MODE_VAR, None)
 
+# ======================================================== b11 회귀 (Q1·Q2·Q3·Q7)
+import time as _time
+# Q1: 처리기가 오래 걸려도 생존 신호는 따로 나감 → 살아 있는 실행기를 죽은 것으로 보지 않음
+os.environ[access.MODE_VAR] = "exec"
+w = World()
+seen = {}
+def slow_dataset(ctx):
+    w.clk.t += 240                                   # 처리 중 4분이 지남 (생존 신호 한도 3분)
+    _time.sleep(0.3)                                 # 그동안 생존 신호 줄이 돎
+    w.master.heartbeat(); w.master.run_once()        # 마스터는 계속 회차를 돎
+    seen["state"] = w.j(A.P_LOCK_MGMT)["state"]
+    w.store.write_json(f"datasets/ds/v/{ctx.run}/_files.json", {"files": {"a": "h"}})
+    return {"report": "done_run", "type_": "dataset", "name": "ds"}
+W.HANDLERS.clear(); W.register("dataset", run=slow_dataset)
+w.request("d1", "dataset", [], name="ds")
+ex = X.Executor(w.store, "CPU9", "fp9", ["cpu"], ACC, W.Dispatch(), clock=w.clk)
+beat = IO.Beat(ex.heartbeat, 0.05); beat.start()
+for i in range(6):
+    w.clk.t += 20; w.master.heartbeat(); ex.step(); w.master.run_once()
+beat.stop(); beat.join(timeout=2)
+check(seen.get("state") == "running" and w.j(A.P_LOCK_MGMT)["state"] == "done" and w.j("datasets/ds/CURRENT.json"),
+      "처리가 4분 걸려도 생존 신호 줄이 따로 돌아 실행기를 죽은 것으로 보지 않음 (Q1)")
+exw = W.run(w.store, ACC, ["cpu"], session="CPU10", max_steps=1, hb_every=0.05, clock=w.clk)
+check(w.j("workers/CPU10__" + exw.fp + ".json")["stopping"] is True, "worker_cpu: 끝날 때 생존 신호 줄을 멈추고 '끝남'을 남김")
+os.environ.pop(access.MODE_VAR, None)
+
+# Q2: 실행형 일이 권한을 잃으면 멈춤 보고 → '확인 필요' (줄이 영영 막히지 않음)
+class LostH(X.Handlers):
+    def run(self, ctx):
+        raise access.AuthorityLost("lost")
+w = World()
+w.executor("C1", ["cpu"], LostH())
+w.request("d1", "dataset", [], name="ds"); w.tick(4)
+mg = w.j(A.P_LOCK_MGMT)
+check(mg["state"] == "needs_check" and mg.get("stop_reported"), "실행형 일이 권한을 잃고 멈춤 → 멈춤 보고 → '확인 필요' (Q2)")
+w.signal("run_choice", lane="mgmt", run=mg["run"], choice="redo"); w.tick(2)
+check(w.j(A.P_DONE + "run_choice__p__1.json")["effects"] == {"redo": "applied"} and w.j(A.P_LOCK_MGMT).get("run") != mg["run"],
+      "멈춤 보고가 있으면 15분을 기다리지 않고 '다시 하기'를 고를 수 있음 (새 실행 번호로 다시 배정)")
+
+# Q3: 사람 목록을 못 읽은 채 20분이 지나면 새 접수·배정을 멈추고 하던 일만 마무리
+w = World(); h = TrackH()
+w.executor("E1", ["gpu"], h)
+state = {"fail": False}
+def cfgp():
+    if state["fail"]:
+        raise IOError("x")
+    return {"accounts": ACC, "people": PEOPLE}
+w.master = M.MasterLoop(w.store, "MS1", "fpm", cfgp, clock=w.clk)
+w.request("r1", "track", [1]); w.tick(2)
+state["fail"] = True
+w.clk.t += 3600
+for e in w.execs: e.heartbeat()
+w.request("r2", "track", [2])
+r = w.tick(6)
+check("config" in r.unknown and w.j(A.P_INTAKE + "r2.json") is None, "사람 목록이 20분 넘게 오래되면 새 요청을 접수하지 않음 (Q3)")
+check(w.results("r1") == [("1", "done")], "이미 배정된 일은 마무리함")
+state["fail"] = False; w.clk.t += 100; w.tick(8)
+check(w.results("r2") == [("2", "done")], "다시 읽히면 접수·처리 재개")
+
+# Q7: 형태가 틀린 파일 하나가 판정 루프를 죽이지 않음
+w = World(); h = TrackH()
+w.executor("E1", ["gpu"], h)
+(w.store.root / "workers").mkdir(parents=True, exist_ok=True)
+(w.store.root / "workers/bad.json").write_text('["unexpected"]')
+(w.store.root / "workers/bad2.json").write_text('{"session": "Z", "hb": "abc", "caps": "gpu"}')
+(w.store.root / "requests").mkdir(parents=True, exist_ok=True)
+(w.store.root / "requests/REQ_bad__track__pending.json").write_text('"text"')
+w.store.write_json("requests/REQ_iso__track__pending.json", {"tasks": ["3"], "created": "2026-11-14T01:00:00.000Z"})
+w.request("r1", "track", [1])
+r = w.tick(8)
+check("file:workers/bad.json" in r.unknown and not [n for n in r.notes if n.startswith("decide_error")],
+      "객체가 아닌 JSON 파일은 그 파일만 '모름' — 루프는 계속 돎 (Q7)")
+check(w.results("r1") == [("1", "done")] and w.results("iso") == [("3", "done")],
+      "다른 요청은 정상 처리, 만든 시각이 ISO 문자열인 요청(앱 형식)도 처리")
+boom = M.MasterLoop(w.store, "MS1", "fpm", lambda: {"accounts": ACC, "people": PEOPLE}, clock=w.clk)
+orig = A.decide_round
+A.decide_round = lambda *a, **k: (_ for _ in ()).throw(TypeError("x"))
+r = boom.run_once(); A.decide_round = orig
+check(r.notes == ["decide_error:TypeError"] and r.writes == 0, "판정 중 예상 못 한 예외가 나도 그 회차만 건너뜀")
+
+# ======================================================== b12 회귀 (R1·R7)
+w = World(); h = TrackH()
+w.executor("E1", ["gpu"], h)
+w.store.write_json("workers/bad__x.json", {"session": "bad", "fp": [], "caps": ["cpu"], "hb": w.clk()})
+w.request("r1", "track", [1])
+r = w.tick(8)
+check(not [n for n in r.notes if n.startswith("decide_error")] and w.results("r1") == [("1", "done")],
+      "살아 있는 실행기 파일의 fp가 목록이어도 판정이 실패하지 않고 정상 요청이 끝남 (R1)")
+# R7: 진행 중이던 생존 신호 쓰기가 늦게 끝나도 '끝남'이 되돌려지지 않음
+import threading as _th
+os.environ[access.MODE_VAR] = "exec"
+w = World()
+gate, first = _th.Event(), {"n": 0}
+orig_write = w.store.write_json
+def slow_write(path, obj, *a, **k):
+    if path.startswith("workers/CPU20__") and not obj.get("stopping") and first["n"] == 0:
+        first["n"] += 1
+        gate.wait(3)                                  # 첫 생존 신호 쓰기가 늦게 끝남
+    return orig_write(path, obj, *a, **k)
+w.store.write_json = slow_write
+def release_later():
+    _time.sleep(0.5); gate.set()
+_th.Thread(target=release_later, daemon=True).start()
+exr = W.run(w.store, ACC, ["cpu"], session="CPU20", max_steps=1, hb_every=0.05, clock=w.clk, join_timeout=10)
+_time.sleep(0.2)
+rec = w.j("workers/CPU20__" + exr.fp + ".json")
+check(rec["stopping"] is True and "beat_join_timeout" not in exr.notes,
+      "생존 신호 쓰기가 늦게 끝나도 마지막 기록은 '끝남' — 같은 스레드가 순서대로 씀 (R7)")
+w.store.write_json = orig_write
+os.environ.pop(access.MODE_VAR, None)
+
+# ======================================================== b13 회귀 (S1)
+w = World(); h = TrackH()
+w.executor("E1", ["gpu"], h); w.executor("C1", ["cpu"], X.Handlers())
+w.store.write_json("requests/REQ_bn__create16__pending.json", {"tasks": [], "name": 123, "created": w.clk()}, owner="a0@x")
+w.request("r1", "track", [1])
+r = w.tick(8)
+check(not [n for n in r.notes if n.startswith("decide_error")] and w.results("r1") == [("1", "done")],
+      "이름이 숫자인 만들기 요청이 있어도 판정이 실패하지 않고 정상 요청이 끝남 (S1)")
+
+# ======================================================== b14 회귀 (U1)
+w = World(); h = TrackH()
+w.executor("E1", ["gpu"], h)
+w.request("r1", "track", [1])
+w.tick(2)
+ep = w.j(A.P_GRANT)["epoch"]
+w.store.write_json(A.P_ASK + "X1__x__000001.json", {"type": "done_job", "lane": "mgmt", "run": "mgmt_x", "rid": "zz",
+                   "epoch": ep, "gen": 1, "decision": "d", "session": "X1", "result": "done", "current_change": 1})
+w.store.write_json(A.P_ASK + "X1__x__000002.json", {"type": "done_run", "lane": "mgmt", "run": "mgmt_y", "rid": "zz",
+                   "epoch": ep, "gen": 1, "decision": "d", "session": "X1", "train_keys": [["a"]]})
+w.store.write_json("datasets/ds/v/run9/_files.json", {"files": {"a": "h"}, "verified": True, "train_keys": [1]})
+w.request("r2", "track", [2])
+r = w.tick(10)
+check(not [n for n in r.notes if n.startswith("decide_error")] and w.results("r2") == [("2", "done")],
+      "current_change가 숫자인 보고·train_keys가 목록의 목록인 보고·형태가 틀린 산출물 목록이 있어도 정상 요청이 끝남 (U1)")
+bad = [w.j(p_) for p_ in [e.path for e in w.store.list(A.P_ALERT, False)]]
+check(any((a or {}).get("why") == "current_change" for a in bad), "형태가 틀린 보고는 알림으로 남음")
+cfg_bad = {"accounts": ACC, "people": [dict(PEOPLE[0], perms="wake")]}
+ml = M.MasterLoop(w.store, "MSX", "fp", lambda: cfg_bad, clock=w.clk)
+check(ml.run_once().notes == ["config_unreadable"], "사람 목록의 권한 칸이 목록이 아니면(문자열) 설정을 쓰지 않음")
+
+# ======================================================== b15 회귀 (V1)
+w = World(); h = TrackH()
+w.executor("E1", ["gpu"], h)
+w.request("r1", "track", [1]); w.tick(2)
+ep = w.j(A.P_GRANT)["epoch"]
+w.store.write_json(A.P_ASK + "X1__x__000009.json", {"type": "done_job", "lane": "mgmt", "run": "mgmt_x", "rid": "zz",
+                   "epoch": ep, "gen": 1, "decision": "d", "session": "X1", "result": "done", "current_change": {"type": []}})
+w.request("r2", "track", [2])
+r = w.tick(10)
+check(not [n for n in r.notes if n.startswith("decide_error")] and w.results("r2") == [("2", "done")],
+      "current_change.type이 목록인 보고가 있어도 정상 요청이 끝남 (V1)")
+for bad_people, why in [([{"account": "a0@x", "perms": ["request"], "status": "active"}], "people[0].id"),
+                        ([PEOPLE[0], dict(PEOPLE[0])], "people.duplicate")]:
+    ml = M.MasterLoop(w.store, "MSX", "fp", lambda bp=bad_people: {"accounts": ACC, "people": bp}, clock=w.clk)
+    rr = ml.run_once()
+    check(rr.notes == ["config_unreadable"] and ml.cfg_reject == why and ml.config_status()["rejected"] == why,
+          f"사람 목록 {why} → 설정을 받지 않고 거절 이유를 남김 (V1)")
+good = {"v": {"accounts": ACC, "people": PEOPLE}}
+ml = M.MasterLoop(w.store, "MSY", "fp", lambda: good["v"], clock=w.clk)
+ml.run_once()
+good["v"] = {"accounts": ACC, "people": [{"account": "a0@x", "perms": []}]}
+w.clk.t += 700; ml.run_once()
+ml.heartbeat()
+hb = w.j("workers/MSY__fp.json")
+check(ml.cfg_cache["people"] == PEOPLE and hb["status"] == {} and ml.config_status()["rejected"] == "people[0].id"
+      and ml.config_status()["ok_at"] is not None, "새 사람 목록이 틀리면 마지막 정상 목록을 계속 쓰고, 거절 이유·마지막 정상 시각을 보여 줌")
+
+# ======================================================== b16 회귀 (W1·W2 보호 모드)
+w = World(); h = TrackH()
+w.executor("E1", ["gpu"], h)
+w.tick(2)
+w.signal("stop"); w.tick(3)
+hp = [e.path for e in w.store.list(A.P_HOLD, False)][0]
+hold = w.j(hp)
+w.store.write_json(hp, dict(hold, active=[]))            # 정지 보류 파일이 손상됨 (W2)
+w.request("r9", "track", [9])
+r = w.tick(3)
+arb = w.j(A.P_ARBITER)
+check("protect" in r.notes and arb["protect"] and arb["protect"][0]["path"] == hp and not w.store.exists(A.P_INTAKE + "r9.json")
+      and not [e for e in w.store.list(A.P_ASSIGN, False) if "r9" in e.path],
+      "정지 보류 파일이 손상되면 보호 모드 — 새 요청을 접수·배정하지 않고 회차 기록에 경로·이유 (W2)")
+check(w.master.last_clean_at < w.master.last_run_at, "보호 모드 회차는 '빠짐없는 회차'로 세지 않음 (밤에 끝내지 않음)")
+check(any((w.j(e.path) or {}).get("kind") == "protect" for e in w.store.list(A.P_ALERT, False)), "보호 모드 알림이 남음 (Keeper가 메일·푸시)")
+w.store.write_json(hp, hold)                              # 관리자가 바로잡음
+w.signal("release", stop_id=hold["stop_id"])
+r = w.tick(6)
+check("protect" not in r.notes and w.j(A.P_ARBITER)["protect"] == [] and w.results("r9") == [("9", "done")],
+      "바로잡으면 다음 회차부터 정상 — 해제 뒤 밀린 요청이 끝남")
+# W1 ③: 살아 있는 배정의 세션 지문이 지워지면 다른 실행기로 덮지 않음
+w = World(); slow = TrackH()
+w.executor("E1", ["gpu"], slow)
+w.request("r1", "track", [1]); w.tick(1)
+ap = [e.path for e in w.store.list(A.P_ASSIGN, False)][0]
+asg = w.j(ap)
+w.store.write_json(ap, {k: v_ for k, v_ in asg.items() if k != "by_session"})
+w.executor("E2", ["gpu"], TrackH())
+r = w.tick(3)
+check("protect" in r.notes and w.j(ap).get("session") == asg["session"], "배정 파일의 세션 지문이 없으면 보호 모드 — 다른 실행기로 덮지 않음 (W1)")
+
 # ======================================================== rclone 저장소 (가짜 rclone)
 calls = []
 LS = [{"Path": "ARBITER_GRANT.json", "Name": "ARBITER_GRANT.json", "Size": 30, "ModTime": "2026-11-14T04:06:49.123456789Z",
@@ -314,6 +514,19 @@ check(rs.write_json(A.P_GRANT, {}, create_only=True) is False, "'없을 때만 �
 rs2 = IO.RcloneStore("gdrive:", runner=lambda a, i=None, timeout=60: (124, "", "timeout"))
 f2, u2, _ = IO.snapshot(rs2)
 check({"grant", "requests", "workers", "state", "asks", "signals", "artifacts"} <= u2 and not f2, "rclone이 시간 초과면 전부 '모름'")
+LS.append({"Path": "x.json", "Name": "x.json", "Size": "?", "ModTime": "2026-11-14T04:06:49Z", "IsDir": False, "Metadata": "bad"})
+ent = [e for e in rs.list("jobs/", False) if e.path.endswith("x.json")] if False else None
+def fake2(args, input=None, timeout=60):
+    return (0, json.dumps([{"Path": "x.json", "ModTime": "2026-11-14T04:06:49Z", "Size": "?", "Metadata": "bad"}]), "") \
+        if args[0] == "lsjson" else (0, "{}", "")
+e2 = IO.RcloneStore("gdrive:", runner=fake2).list("workers/", False)
+check(len(e2) == 1 and e2[0].created_known is False and e2[0].created == e2[0].modified and e2[0].size == 0,
+      "만든 시각이 없으면 수정 시각으로 순서만 정하고 '만든 시각 없음'으로 표시 (거절하지 않음)")
+try:
+    IO.RcloneStore("gdrive:", runner=lambda a, i=None, timeout=60: (0, '{"not": "list"}', "")).list("workers/", False)
+    check(False, "목록 형태 확인")
+except IO.StoreError:
+    check(True, "rclone 목록의 형태가 다르면 목록 실패로 처리 ('모름')")
 check(abs(IO._iso("2026-11-14T04:06:49.123456789Z") - IO._iso("2026-11-14T13:06:49.123456+09:00")) < 1e-3, "시각 해석 (나노초·시간대)")
 
 shutil.rmtree(TMP, ignore_errors=True)

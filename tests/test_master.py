@@ -36,7 +36,7 @@ def _beat():                                   # v4.31.13: 가짜 동료도 생�
                 pass
 import threading as _th; _th.Thread(target=_beat, daemon=True).start()
 
-sys.path.insert(0, str(PKG / "notebooks")); sys.path.insert(0, str(B / "scripts"))
+sys.path.insert(0, str(PKG / "notebooks" / "K_kaggle")); sys.path.insert(0, str(B / "scripts"))
 import kaggle_cpu_master as m
 m.ensure_environment = lambda: None; m.setup_credentials = lambda: None
 m.is_daytime_kst = lambda: True; m.MAX_RUN_HOURS = float(os.environ.get("MASTER_TEST_SEC", "40")) / 3600   # v4.31.10: 느린 환경은 MASTER_TEST_SEC=90

@@ -41,7 +41,7 @@ req("relabel/requests", "RB0", "refresh", [], "B", ago(0))
 req("requests", "LB1", "backup", [10], "B", ago(2))             # LC
 req("requests", "LA1", "track", [11], "A", ago(30))             # LC GPU 일
 
-nb = json.load(open(latest(PKG / "notebooks", "eggplant_yolo_colab")))
+nb = json.load(open(latest(PKG / "notebooks" / "A0_colab", "eggplant_yolo_colab")))
 src = "".join(nb["cells"][54]["source"])
 assert src.startswith("# 30. 작업자"), src[:40]
 cut = src.index("# ---------- 돌기 (v4.31.6)")

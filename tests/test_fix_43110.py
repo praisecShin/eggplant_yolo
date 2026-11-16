@@ -23,7 +23,7 @@ r = wb.backup_verdict(B, rows, [1, 2, 3, 4, 5, 6, 7], server="app.cvat.ai")
 check(r == (["1"], ["2"], ["3", "4", "5", "6", "7"]), f"판정: 받음·받는 중·실패 (다른 서버 요청은 이 서버 것이 아님 · v4.31.11: 경로 없는 최신도 실패) {r}")
 
 # ---- R3: 0번 셀에서 만든 함수 이름을 다른 셀 맨 바깥에서 값으로 덮지 않음
-nb = json.load(open(latest(PKG / "notebooks", "eggplant_yolo_colab"), encoding="utf-8"))
+nb = json.load(open(latest(PKG / "notebooks" / "A0_colab", "eggplant_yolo_colab"), encoding="utf-8"))
 def tree(src):
     src = "\n".join("" if l.lstrip().startswith(("!", "%")) else l for l in src.splitlines())
     return ast.parse(src)
@@ -58,7 +58,7 @@ c30 = next(s for s in code if s.startswith("# 30."))
 check("wb.backup_verdict(BASE, _RL.get('bk_rows'), need, server=CVAT_SERVER)" in c30 and "left_all" not in c30, "30번: 받는 중 판정을 공용 기준으로")
 
 # ---- R2: CPU 마스터 보안 비밀
-sys.path.insert(0, str(PKG / "notebooks"))
+sys.path.insert(0, str(PKG / "notebooks" / "K_kaggle"))
 import kaggle_cpu_master as m
 m.BASE = B
 H = T / "home"; H.mkdir(); os.environ["HOME"] = str(H)

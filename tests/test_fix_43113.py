@@ -6,7 +6,7 @@ B = T / "base"; D = T / "drive"; shutil.copytree(PKG / "scripts", B / "scripts")
 os.environ.update(EGGPLANT_SHARD="t43113", KAGGLE_BASE=str(B), CVAT_TOKEN="x")
 os.environ.pop("KAGGLE_KERNEL_RUN_TYPE", None)
 import web_bridge as wb, relabel_bridge as rb
-sys.path.insert(0, str(PKG / "notebooks"))
+sys.path.insert(0, str(PKG / "notebooks" / "K_kaggle"))
 import kaggle_cpu_master as m
 ok = True
 def check(c, msg):

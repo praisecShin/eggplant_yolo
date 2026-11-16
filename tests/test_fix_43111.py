@@ -19,7 +19,7 @@ check(wb.backup_verdict(B, [{"task_id": 8, "backup_state": "최신", "last_file"
 # R7 도우미
 check(wb.failed_results([{"task_id": 1, "status": "실패"}, {"task_id": 2, "status": "받음"}, {"task_id": 3, "status": "포기 (준비 안 됨)"}]) == ["1", "3"], "누적 실패·포기 찾기")
 
-sys.path.insert(0, str(PKG / "notebooks"))
+sys.path.insert(0, str(PKG / "notebooks" / "K_kaggle"))
 import kaggle_cpu_master as m
 m.BASE = B
 m._remote = lambda rel="": str(B / rel)
@@ -103,7 +103,7 @@ check(raised and "CVAT_TOKEN" not in os.environ, "Kaggle에서 CVAT_TOKEN 비밀
 os.environ.pop("KAGGLE_KERNEL_RUN_TYPE", None)
 
 # 30번 셀
-nb = json.load(open(latest(PKG / "notebooks", "eggplant_yolo_colab"), encoding="utf-8"))
+nb = json.load(open(latest(PKG / "notebooks" / "A0_colab", "eggplant_yolo_colab"), encoding="utf-8"))
 c30 = next("".join(c["source"]) for c in nb["cells"] if "".join(c["source"]).startswith("# 30."))
 check("_fail = wb.failed_results(res)" in c30 and "'failed' if lost else 'done'" not in c30, "30번: 누적 결과로 최종 상태")
 print("RESULT", ok); sys.exit(0 if ok else 1)

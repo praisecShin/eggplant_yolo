@@ -329,8 +329,9 @@ class Executor:
             ctx.auth = lambda phase, ctx=ctx: self._run_auth(ctx, lp)
             try:
                 m["out"] = dict(self.h.run(ctx) or {"report": "done_job", "result": "done"})
-            except access.AuthorityLost:
-                m["out"] = None                               # 권한 잃음 → 아무것도 보고하지 않음 (심판이 정리)
+            except access.AuthorityLost as e:
+                m["out"] = {"report": "stop_run", "reason": "lost"}     # 게시하지 않고 멈춤 보고 → 심판이 '확인 필요'로 (Q2)
+                self.notes.append(f"lost run {c.run}: {e}")
             except Exception as e:
                 m["out"] = {"report": "done_job", "result": "failed:" + type(e).__name__}
             worked = True
@@ -341,7 +342,11 @@ class Executor:
                 common["key"] = c.assign_obj.get("key")
             if c.lane == "train":
                 common["name"] = lk.get("model")
-            if out.get("report") == "done_run":
+            if out.get("report") == "stop_run":
+                self._once(("stop_run", c.run, ep), lambda: self._ask(
+                    "stop_run", "run", lane=c.lane, run=c.run, rid=c.rid, epoch=ep, decision=c.decision,
+                    name=common.get("name"), key=common.get("key"), reason=out.get("reason")))
+            elif out.get("report") == "done_run":
                 art = lk.get("artifact") or {}
                 self._once(("done", c.run, lk["gen"], ep), lambda: self._ask(
                     "done_run", "run", **{**common, "type_": out.get("type_", art.get("type")),

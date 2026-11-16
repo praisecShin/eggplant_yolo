@@ -22,7 +22,7 @@ def req(rid, kind, ids, route=None, sub="requests", **params):
 req("g1", "shape", [4], "kaggle_gpu", sub="relabel/requests")
 req("t1", "train", [], "kaggle_gpu")
 req("c1", "export", [4], "colab")
-shutil.copy(latest(PKG / "notebooks", "eggplant_kaggle_gpu_worker"), (D / "notebooks").mkdir(parents=True, exist_ok=True) or D / "notebooks" / "eggplant_kaggle_gpu_worker_v4.31.7.ipynb")
+shutil.copy(latest(PKG / "notebooks" / "K_kaggle", "eggplant_kaggle_gpu_worker"), (D / "notebooks").mkdir(parents=True, exist_ok=True) or D / "notebooks" / "eggplant_kaggle_gpu_worker_v4.31.7.ipynb")
 (D / "notebooks" / "eggplant_kaggle_gpu_worker_v4.31.2.ipynb").write_text("{}")   # 옛 버전 — 새 것을 골라야 함
 BIN = T / "bin"; BIN.mkdir(exist_ok=True); LOG = T / "kaggle_calls.log"; LOG.unlink(missing_ok=True)   # v4.31.13 (R16): 앞선 실행의 호출 기록을 세지 않게
 (BIN / "kaggle").write_text(f"""#!/bin/sh
@@ -32,7 +32,7 @@ if [ "$1 $2" = "kernels status" ]; then echo 'status "complete"'; fi
 """)
 os.chmod(BIN / "kaggle", 0o755); os.environ["PATH"] = f"{BIN}:" + os.environ["PATH"]
 os.environ.update(KAGGLE_USERNAME="tester", KAGGLE_KEY="k")
-sys.path.insert(0, str(PKG / "notebooks")); sys.path.insert(0, str(B / "scripts"))
+sys.path.insert(0, str(PKG / "notebooks" / "K_kaggle")); sys.path.insert(0, str(B / "scripts"))
 import kaggle_cpu_master as m
 m.ensure_environment = lambda: None; m.setup_credentials = lambda: None
 m.is_daytime_kst = lambda: True; m.MAX_RUN_HOURS = float(os.environ.get("MASTER_TEST_SEC", "40")) / 3600   # v4.31.10: 느린 환경은 MASTER_TEST_SEC=90

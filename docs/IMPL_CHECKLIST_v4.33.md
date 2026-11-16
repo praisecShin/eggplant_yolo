@@ -1,6 +1,6 @@
 # v4.33 구현 점검표
 
-2026-11-14 · 설계 8판(`docs/DESIGN_v4.33.md`)을 구현할 때 하나씩 바꾸고 시험으로 확인할 목록입니다. 출처는 3판 검토 `docs/REVIEW_RESULT_b2.md`의 G5~G8·G11과 3~5절, 4판 검토 `docs/REVIEW_RESULT_v4.33_b4.md`의 H1~H7, 5판 검토 `docs/REVIEW_RESULT_v4.33_b5.md`의 J1~J10, 6판 검토 `docs/REVIEW_RESULT_v4.33_b6.md`의 K1~K6, 7판 검토 `docs/REVIEW_RESULT_v4.33_b7.md`의 L1~L3입니다. 구현 1a에서 끝낸 항목은 [x]로 표시했습니다 (`docs/IMPL_STEP1A_v4.33.md`). 위치는 v4.32.0 기준이며, 셀 줄은 각 코드 셀 안의 줄 번호입니다.
+2026-11-14 · 설계 8판(`docs/DESIGN_v4.33.md`)을 구현할 때 하나씩 바꾸고 시험으로 확인할 목록입니다. 출처는 3판 검토 `docs/REVIEW_RESULT_b2.md`의 G5~G8·G11과 3~5절, 4판 검토 `docs/REVIEW_RESULT_v4.33_b4.md`의 H1~H7, 5판 검토 `docs/REVIEW_RESULT_v4.33_b5.md`의 J1~J10, 6판 검토 `docs/REVIEW_RESULT_v4.33_b6.md`의 K1~K6, 7판 검토 `docs/archived/REVIEW_RESULT_v4.33_b7.md`의 L1~L3입니다. 구현 1a에서 끝낸 항목은 [x]로 표시했습니다 (`docs/IMPL_STEP1A_v4.33.md`). 위치는 v4.32.0 기준이며, 셀 줄은 각 코드 셀 안의 줄 번호입니다.
 
 표시: [ ] 할 일 · 각 항목 끝의 (시험)은 그 항목을 확인할 시험입니다.
 

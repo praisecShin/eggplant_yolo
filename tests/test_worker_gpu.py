@@ -41,7 +41,7 @@ req("relabel/requests", "RC1", "shape", [3], "B", ago(25)); assign("RC1", "colab
 req("relabel/requests", "RN1", "shape", [5], "B", ago(25))                               # 배정 없음 → 안 받음
 req("requests", "LT1", "train", [], "A", ago(10)); assign("LT1", "kaggle_gpu")
 req("requests", "LB1", "backup", [10], "B", ago(5)); assign("LB1", "kaggle_cpu")           # CPU 마스터 몫
-nb = json.load(open(latest(PKG / "notebooks", "eggplant_kaggle_gpu_worker")))
+nb = json.load(open(latest(PKG / "notebooks" / "K_kaggle", "eggplant_kaggle_gpu_worker")))
 src = "".join(nb["cells"][2]["source"])
 assert src.startswith("# 30. 작업자"), src[:40]
 cut = src.index("# ---------- 돌기 (v4.31.6)")

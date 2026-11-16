@@ -1,0 +1,104 @@
+first {
+  queued: { found: 1, queued: 1 },
+  error: 'fake Drive failure',
+  pending: 1
+}
+second {
+  queued: { found: 1, queued: 1 },
+  export: 2,
+  backup: 0,
+  backup_skipped: 0,
+  requests: [
+    {
+      id: '20261115_111000_gavc3vp',
+      kind: 'export',
+      n: 1,
+      existed: undefined
+    },
+    {
+      id: '20261115_112000_ga1lwwy',
+      kind: 'export',
+      n: 1,
+      existed: undefined
+    }
+  ],
+  pending: 0
+}
+requests [ [ '11' ], [ '11' ] ]
+same_task_flush {
+  export: 2,
+  backup: 0,
+  backup_skipped: 0,
+  requests: [
+    {
+      id: '20261115_112000_ga71ya0',
+      kind: 'export',
+      n: 2,
+      existed: undefined
+    }
+  ],
+  pending: 0
+}
+same_task_payload [ [ '11', '11' ] ]
+broken_read { events: {}, batches: {} }
+broken_overwritten {
+  events: {
+    'export:22:2': {
+      kind: 'export',
+      id: 22,
+      name: 'x',
+      updated: '2',
+      at: '2026-11-15T02:20:00.000Z'
+    }
+  },
+  batches: {}
+}
+ledger_fail {
+  queued: { found: 1, queued: 1 },
+  error: 'fake Drive failure',
+  pending: 1
+}
+index_lag_retry {
+  queued: { found: 0 },
+  export: 1,
+  backup: 0,
+  backup_skipped: 0,
+  requests: [
+    {
+      id: '20261115_113000_gavc3vp',
+      kind: 'export',
+      n: 1,
+      existed: undefined
+    }
+  ],
+  pending: 0
+}
+physical_duplicate_names [
+  'REQ_20261115_113000_gavc3vp__export__pending.json',
+  'REQ_20261115_113000_gavc3vp__export__pending.json'
+]
+snapshot_failure fake Drive failure
+two_events_real {
+  queued: { found: 1, queued: 1 },
+  export: 2,
+  backup: 0,
+  backup_skipped: 0,
+  requests: [
+    {
+      id: '20261115_120000_ga14em2',
+      kind: 'export',
+      n: 2,
+      existed: undefined
+    }
+  ],
+  pending: 0
+}
+two_events_payload [ [ '11', '11' ] ]
+array_corruption {
+  queued: { found: 1, queued: 1 },
+  export: 0,
+  backup: 0,
+  backup_skipped: 0,
+  requests: [],
+  pending: 0
+} requests 0 pending { events: [], batches: {} }

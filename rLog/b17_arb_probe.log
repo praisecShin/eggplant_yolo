@@ -1,0 +1,2 @@
+protect [{'path': 'arb/signal_plan/stop__p__1.json', 'why': 'plan_effects_mismatch'}] done None hold None
+new_assignment []

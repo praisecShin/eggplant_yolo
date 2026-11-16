@@ -1,0 +1,4 @@
+owner_unknown protect [] done {'sid': 'confirm_choice__p__2', 'seq': 1, 'result': 'done', 'effects': {'lock': 'invalid:choice_not_open'}, 'at': 1762995820, 'by_session': 'MS1', 'by_epoch': 1} lock quarantine
+owner_restored done {'sid': 'confirm_choice__p__2', 'seq': 1, 'result': 'done', 'effects': {'lock': 'invalid:choice_not_open'}, 'at': 1762995820, 'by_session': 'MS1', 'by_epoch': 1} lock quarantine
+G_release_paused_done None active True
+G_release_revoked protect [] done {'sid': 'release__p__3', 'seq': 2, 'result': 'done', 'effects': {'unhold': 'applied'}, 'at': 1762995600, 'by_session': 'MS1', 'by_epoch': 1} hold {'stop_id': 'stop__p__1', 'active': False, 'until': None, 'by': 'M1', 'at': 1762995600, 'released_by': 'release__p__3', 'released_at': 1762995600, 'by_session': 'MS1', 'by_epoch': 1}

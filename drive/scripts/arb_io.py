@@ -12,6 +12,7 @@ import datetime
 import json
 import os
 import subprocess
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,6 +32,34 @@ class Entry:
     created: float = 0.0
     modified: float = 0.0
     size: int = 0
+    created_known: bool = True        # False: 저장소가 만든 시각을 주지 않아 수정 시각으로 대신함 (순서에만 씀)
+
+
+class Beat(threading.Thread):
+    """일하는 줄과 따로 도는 생존 신호. 긴 처리 중에도 계속 보냄 (Q1).
+    final이 있으면 멈출 때 이 스레드가 마지막으로 씀 — 생존 신호 파일은 이 스레드 하나만 씀 (R7)."""
+
+    def __init__(self, fn: Callable[[], None], interval: float = 60, final: Optional[Callable[[], None]] = None):
+        super().__init__(daemon=True)
+        self.fn, self.interval, self.final, self._stop_ev = fn, interval, final, threading.Event()
+        self.errors, self.final_done = 0, False
+
+    def run(self):
+        while not self._stop_ev.is_set():
+            try:
+                self.fn()
+            except Exception:
+                self.errors += 1
+            self._stop_ev.wait(self.interval)
+        if self.final is not None:                       # 진행 중이던 쓰기가 끝난 뒤에만 '끝남'을 씀
+            try:
+                self.final()
+                self.final_done = True
+            except Exception:
+                self.errors += 1
+
+    def stop(self):
+        self._stop_ev.set()
 
 
 # (종류, 접두사, 하위 폴더까지, 파일 이름 거르기)
@@ -108,7 +137,7 @@ class LocalStore:
         if create_only and f.exists():
             return False
         f.parent.mkdir(parents=True, exist_ok=True)
-        tmp = f.with_name(f.name + ".tmp")
+        tmp = f.with_name(f"{f.name}.{os.getpid()}.{threading.get_ident()}.tmp")   # 같은 파일 동시 쓰기에도 겹치지 않게
         tmp.write_text(json.dumps(obj, ensure_ascii=False), encoding="utf-8")
         os.replace(tmp, f)
         now = self.clock()
@@ -187,14 +216,20 @@ class RcloneStore:
             items = json.loads(out or "[]")
         except Exception:
             raise StoreError(f"목록 해석 실패: {prefix}")
+        if not isinstance(items, list) or not all(isinstance(it, dict) and isinstance(it.get("Path"), str) for it in items):
+            raise StoreError(f"목록 형태가 다름: {prefix}")
         res = []
         for it in items:
             if it.get("IsDir"):
                 continue
-            md = it.get("Metadata") or {}
-            mod = _iso(it.get("ModTime", ""))
-            res.append(Entry(target + it.get("Path", ""), md.get("owner", "") or "", _iso(md.get("btime", "")) or mod,
-                             mod, int(it.get("Size", 0) or 0)))
+            md = it.get("Metadata") if isinstance(it.get("Metadata"), dict) else {}
+            mod = _iso(str(it.get("ModTime", "")))
+            bt = _iso(str(md.get("btime", "")))
+            try:
+                size = int(it.get("Size", 0) or 0)
+            except (TypeError, ValueError):
+                size = 0
+            res.append(Entry(target + it["Path"], str(md.get("owner", "") or ""), bt or mod, mod, size, created_known=bool(bt)))
         return res
 
     def read_json(self, path: str) -> Any:
@@ -242,6 +277,7 @@ def snapshot(store, spec=ARBITER_SPEC, cache: Optional[Cache] = None, clock=time
         cache.items.clear()
         cache.last_full = started
     seen: Dict[str, Entry] = {}
+    no_btime = 0
     for kind, prefix, recursive, include in spec:
         try:
             for e in store.list(prefix, recursive, include):
@@ -251,12 +287,15 @@ def snapshot(store, spec=ARBITER_SPEC, cache: Optional[Cache] = None, clock=time
             if prefix == "arb/":
                 unknown.add("asks")                   # 신청·보고도 arb/ 아래
     for path, e in seen.items():
+        no_btime += 0 if e.created_known else 1
         c = cache.items.get(path) if cache is not None else None
         if c and c[0] == e.modified and c[1] == e.size:
             obj = c[2]
         else:
             try:
                 obj = store.read_json(path)
+                if not isinstance(obj, dict):                # 문법은 맞아도 객체가 아니면 그 파일만 '모름' (Q7)
+                    raise StoreError(f"형태가 다름: {path}")
             except StoreError:
                 unknown.add("file:" + path)
                 if path == "jobs/ARBITER_GRANT.json":
@@ -265,6 +304,10 @@ def snapshot(store, spec=ARBITER_SPEC, cache: Optional[Cache] = None, clock=time
             if cache is not None:
                 cache.items[path] = (e.modified, e.size, obj)
         files[path] = FileRec(obj, e.owner, e.created, e.modified)
+    try:
+        store.no_btime = no_btime                     # 만든 시각이 빠진 파일 수 (마스터가 알림에 씀)
+    except Exception:
+        pass
     return files, unknown, started
 
 

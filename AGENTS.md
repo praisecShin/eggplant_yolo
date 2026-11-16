@@ -1,6 +1,6 @@
-# AGENTS.md — 가지 자동 라벨링 (Eggplant) v4.32.0
+# AGENTS.md — 가지 자동 라벨링 (Eggplant) v4.32.0 운영 · v4.33 개발 중
 
-이 저장소에서 일하는 코딩 에이전트(Codex 등)를 위한 안내입니다. 자세한 점검 항목은 `docs/REVIEW_CHECKLIST_v4.31.8.md`(전체 점검)와 `docs/REVIEW_REQUEST_v4.31.9.md`(1차 수정)·`docs/REVIEW_REQUEST_v4.31.10.md`(R1~R5)·`docs/REVIEW_REQUEST_v4.31.11.md`(R6~R10)·`docs/REVIEW_REQUEST_v4.31.12.md`(R11~R13)·`docs/REVIEW_REQUEST_v4.31.13.md`(R14~R16)·`docs/REVIEW_REQUEST_v4.32.0.md`(2차-1 F3·F14), 설치·변경 내용은 `README_v4.32.0_설치.md`에 있습니다. 앱 이름: **LC앱**(가지 라벨링 관리) · **AA앱**(가지 재처리 — 코드에서는 relabel·재처리로 부름).
+이 저장소에서 일하는 코딩 에이전트(Codex 등)를 위한 안내입니다. **v4.33 검토는 `docs/`의 문서(설계·배포 계획·구현 설명·최근 검토 요청)를 봅니다.** v4.32까지의 점검 항목은 `docs/archived/REVIEW_CHECKLIST_v4.31.8.md`(전체 점검)와 `docs/archived/REVIEW_REQUEST_v4.31.9.md`(1차 수정)·`docs/archived/REVIEW_REQUEST_v4.31.10.md`(R1~R5)·`docs/archived/REVIEW_REQUEST_v4.31.11.md`(R6~R10)·`docs/archived/REVIEW_REQUEST_v4.31.12.md`(R11~R13)·`docs/archived/REVIEW_REQUEST_v4.31.13.md`(R14~R16)·`docs/archived/REVIEW_REQUEST_v4.32.0.md`(2차-1 F3·F14), 설치·변경 내용은 `README_v4.32.0_설치.md`에 있습니다. 앱 이름: **LC앱**(가지 라벨링 관리) · **AA앱**(가지 재처리 — 코드에서는 relabel·재처리로 부름).
 
 ## 1. 역할
 
@@ -10,24 +10,36 @@
 
 ## 2. 저장소 구조
 
+지금 운영 중인 것은 v4.32.0이고, v4.33(경합 통제)은 개발 중입니다. 폴더는 **어느 계정·어디에서 실행되는가**로 나눴습니다.
+계정: **A0** 재웅님 Google 계정(공유 폴더 소유·앱·Colab·Kaggle 보조), **K** Kaggle 실행 계정, **G** Apps Script 계정 (설계 '계정 역할').
+
 ```
-apps_script/Code.gs            Apps Script — CVAT TASK 수집(collect), 요청 배정(dispatch), _AA 자동 요청
-drive/scripts/*.py             노트북이 불러 쓰는 부품 (Google Drive eggplant_yolo/scripts/에 그대로 올라감)
-  cvat_task_tools.py   (ctt)   CVAT 접속·TASK 이름 규칙·export·작업 대장·고정 시험 TASK
-  web_bridge.py        (wb)    LC앱 요청·상태·공정 차례(fair_order)·사라진 TASK
-  relabel_bridge.py    (rb)    AA앱(재처리) 요청·상태·작업자 생존 신호
-  train_sim.py                 학습 계획 연구(지문·성적·개수 오차·관계·분할안) — 33번 셀
-  yolo_track_to_cvat.py        YOLO+BoT-SORT로 track XML 만들기 (--frame-map: ULD 사진 TASK)
-  cvat_backup.py, cvat_to_yolo.py, compare_tracks.py 등
-drive/scripts/notebook_cells.json  작업자가 실행하는 셀 코드 사본 (노트북과 글자까지 같아야 함)
-drive/notebooks/
-  eggplant_yolo_colab_v4.32.0.ipynb        사람이 쓰는 노트북 (0번 셀 먼저 → 필요한 셀). 30번 = 작업자, 33번 = 학습 계획 연구
-  eggplant_kaggle_gpu_worker_v4.32.0.ipynb 0번 + 30번 셀(W_ROLE='gpu') — CPU 마스터가 Kaggle API로 시작
-  eggplant_kaggle_cpu_master_v4.32.0.ipynb · kaggle_cpu_master.py   Kaggle CPU 상주 마스터 (ipynb 안의 코드 = py)
-tests/                          가짜 Drive·가짜 CVAT 시험
+drive/                       Google Drive eggplant_yolo/ 에 올라가는 것
+  scripts/*.py               노트북·작업자가 불러 쓰는 부품 (Drive scripts/에 그대로; v4.33부터는 관리자 폴더 deploy/로 배포)
+    cvat_task_tools.py (ctt) · web_bridge.py (wb) · relabel_bridge.py (rb) · train_sim.py · yolo_track_to_cvat.py · cvat_backup.py …   v4.32
+    arbiter.py · access.py · arb_io.py · arb_master.py · executor.py · worker_cpu.py · master_main.py                                    v4.33
+  scripts/notebook_cells.json  작업자가 실행하는 셀 코드 사본 (노트북과 글자까지 같아야 함)
+  notebooks/                 계정별 (Drive에는 하위 폴더 없이 notebooks/에 올림)
+    A0_colab/   eggplant_yolo_colab_v4.32.0.ipynb        사람이 쓰는 노트북 (0번 셀 먼저 → 필요한 셀). 30번 = 작업자, 33번 = 학습 계획 연구
+    A0_kaggle/  eggplant_kaggle_train_v4.31.0.ipynb      A0 Kaggle 학습 (지금은 K의 보조)
+    K_kaggle/   eggplant_kaggle_cpu_master_v4.32.0.ipynb · kaggle_cpu_master.py · kernel-metadata-cpu-master.json   CPU 상주 마스터 (v4.32)
+                eggplant_kaggle_gpu_worker_v4.32.0.ipynb · kernel-metadata-gpu-worker.json   GPU 작업자 (A0 Kaggle 보조도 같은 노트북)
+                master_boot_v4.33.py                     v4.33 마스터 뿌리 노트북의 셀 원본 (dev_tools/build_deploy.py가 노트북으로 만듦)
+    KAGGLE.md                                            Kaggle 쓰는 법
+apps_script/                 Google Apps Script — 계정·프로젝트별 (프로젝트마다 appsscript.json)
+  G_collector/  Collector.gs · Uld.gs     v4.33 수집기 (CVAT 수집·자동 요청·ULD 확장). 웹앱 아님
+  G_keeper/     Keeper.gs                 v4.33 Keeper (심판 자격·마스터 깨우기·감시·메일·푸시). 웹앱 아님
+  K_legacy_v4.32/ Code.gs                 지금 운영 중인 수집기+배정기 (전환 때 끔). 운영 프로젝트에는 Uld.gs도 같이 있음 (G_collector/Uld.gs와 같은 파일)
+apps/                        claude.ai에 게시하는 앱 (A0)
+  ctrl/index.html            CTRL앱 (시스템 감시·제어) — LC앱·AA앱은 아직 이 저장소에 없음
+dev_tools/                   개발 기계에서만 쓰는 도구 (Drive에 올리지 않음)
+  setup.sh                   시험 환경 준비 (rclone·Node.js)
+  build_deploy.py            v4.33 배포 묶음 만들기 (배포 목록·뿌리 노트북 고정 해시·Keeper용 해시)
+docs/                        지금 검토에 쓰는 설계·계획·구현 설명·검토 요청 — 지난 것은 docs/archived/
+tests/                       가짜 Drive·가짜 CVAT·가짜 Kaggle 시험
 ```
 
-통신은 모두 Google Drive의 파일(요청 `requests/REQ_<id>__<kind>__<status>.json`, 배정 `requests/assign/`, 상태 `web/state.json`·`relabel/state.json`)입니다. 웹앱 2개(LC앱, AA앱)는 이 저장소에 없습니다.
+v4.32 통신은 Google Drive의 파일(요청 `requests/REQ_<id>__<kind>__<status>.json`, 배정 `requests/assign/`, 상태 `web/state.json`·`relabel/state.json`)입니다. v4.33은 여기에 심판의 판정 파일(`arb/`)과 신호(`jobs/signals/`)를 더합니다 (`docs/DESIGN_v4.33.md`).
 
 ## 3. 반드시 지켜야 할 약속 (리뷰의 최우선 기준)
 
@@ -51,12 +63,20 @@ tests/                          가짜 Drive·가짜 CVAT 시험
 
 ## 4. 실행·시험 방법
 
-필요한 것: Python 3.10 이상, `numpy`, `Pillow`, `rclone`(test_master 계열), Node.js(js 시험). **준비: `bash script/setup.sh`** (sudo 없이 사용자 폴더에 설치). **실제 CVAT·Google Drive·Kaggle에는 접속하지 마세요.** 토큰은 없고, 모든 시험은 가짜 환경으로 돕니다.
+필요한 것: Python 3.10 이상, `numpy`, `Pillow`, `rclone`(test_master 계열), Node.js(js 시험). **준비: `bash dev_tools/setup.sh`** (sudo 없이 사용자 폴더에 설치). **실제 CVAT·Google Drive·Kaggle에는 접속하지 마세요.** 토큰은 없고, 모든 시험은 가짜 환경으로 돕니다.
 
 ```bash
 pip install numpy pillow pyflakes          # rclone은 OS 패키지로 (apt install rclone 등)
 
 # 저장소 맨 위에서
+python3 tests/test_arbiter_433.py drive    # v4.33: 심판 판정 함수 (1a)
+python3 tests/test_access_433.py drive     # v4.33: 접근 통제·배포 검증 도구 (1a)
+python3 tests/test_master_433.py drive     # v4.33: 저장소·마스터 루프·실행기 뼈대 (1b)
+python3 tests/test_master_main_433.py drive   # v4.33: 배포 묶음·뿌리 노트북·마스터 본체 (2a)
+python3 tests/test_fuzz_433.py drive         # v4.33: 무작위 입력 시험 — 어떤 입력에도 판정 회차가 예외 없이 끝나는지 (약 15초)
+node tests/test_collector.js apps_script/G_collector/Collector.gs apps_script/G_collector/Uld.gs   # v4.33: 수집기 (배정·깨우기를 뺀 Code.gs) + Uld.gs — Keeper 시험보다 먼저 (생존 기록 산출물을 남김)
+node tests/test_keeper.js apps_script/G_keeper/Keeper.gs   # v4.33: Keeper
+node tests/test_ctrl_app.js apps/ctrl/index.html   # v4.33: CTRL앱 (jsdom 필요: npm i jsdom)
 python3 tests/test_fix_4320.py drive       # v4.32.0: 취합자 임대·요청 소유 확인·받는 중 넘겨받기·TASK 기록 줄·마스터 받기 확인
 python3 tests/test_fix_43113.py drive      # v4.31.13: TASK 기록은 sync_task_record로만 — 받기 실패 시 쓰지 않음(R14)·상태 갱신/AA 작업이 통째로 올리지 않음(R15)
 python3 tests/test_fix_43112.py drive      # v4.31.12: TASK 기록 통째 올리기 없앰(R11)·실패만 남은 track 마무리(R12)·시험 노트북 고르기(R13)
@@ -71,15 +91,15 @@ python3 tests/test_state_uld.py drive      # 앱 상태의 ULD 표시·Drive 목
 MASTER_TEST_SEC=90 python3 tests/test_master.py drive   # CPU 마스터 순환 (rclone 필요 · 기본 40초, 느린 환경은 90)
 python3 tests/test_master_gpu.py drive     # CPU 마스터가 GPU 워커를 올리는지 (가짜 kaggle 명령)
 python3 tests/test_master_stop.py drive    # CPU 마스터 정지 표시
-node tests/test_auto.js apps_script/Code.gs
-node tests/test_dispatch.js apps_script/Code.gs
+node tests/test_auto.js apps_script/K_legacy_v4.32/Code.gs
+node tests/test_dispatch.js apps_script/K_legacy_v4.32/Code.gs
 ```
 
 - 각 시험은 `✅`/`❌` 줄과 마지막 `RESULT True`(또는 `통과`)를 출력합니다. 지금은 모두 통과합니다.
 - 시험은 `tests/_work*` 폴더를 만들고 지웁니다. 저장소의 다른 파일은 바꾸지 않습니다.
 - 노트북 셀은 IPython 전용 줄(`!`, `%`)을 빼면 일반 파이썬입니다. 정적 점검 예:
   ```bash
-  python3 -m pyflakes drive/scripts/*.py drive/notebooks/kaggle_cpu_master.py
+  python3 -m pyflakes drive/scripts/*.py drive/notebooks/K_kaggle/kaggle_cpu_master.py
   ```
   셀 코드는 0번 셀(공통 설정·함수)이 먼저 실행된다고 가정하므로, 셀 단독으로 '정의되지 않은 이름'이 나오면 0번 셀에 있는지 먼저 확인하세요.
 - 노트북을 셀 단위로 실행하지 마세요. 0번 셀은 Google Drive를 붙이거나 rclone으로 Drive에 접속하려고 합니다.
@@ -91,7 +111,7 @@ node tests/test_dispatch.js apps_script/Code.gs
 1. 3장의 약속 위반
 2. 요청이 처리되지 않거나, 두 번 처리되거나, 잘못된 결과를 '완료'로 남기는 경로 (특히 30번 셀의 스레드·주 스레드 동시 실행, 작업자 여럿이 Drive 파일을 함께 쓰는 경우)
 3. 데이터 손실: Drive 파일 덮어쓰기, 세션별 기록(shard) 합치기, 옛 이름 요청 파일이 되살아나는 경우
-4. 해결해 온 이슈의 재발 (`docs/REVIEW_CHECKLIST_v4.31.8.md` 4장, `docs/REVIEW_REQUEST_v4.31.9.md`, `docs/REVIEW_REQUEST_v4.31.10.md`, `docs/REVIEW_REQUEST_v4.31.11.md`, `docs/REVIEW_REQUEST_v4.31.12.md`, `docs/REVIEW_REQUEST_v4.31.13.md`, `docs/REVIEW_REQUEST_v4.32.0.md`)
+4. 해결해 온 이슈의 재발 (`docs/archived/REVIEW_CHECKLIST_v4.31.8.md` 4장, `docs/archived/REVIEW_REQUEST_v4.31.9.md`, `docs/archived/REVIEW_REQUEST_v4.31.10.md`, `docs/archived/REVIEW_REQUEST_v4.31.11.md`, `docs/archived/REVIEW_REQUEST_v4.31.12.md`, `docs/archived/REVIEW_REQUEST_v4.31.13.md`, `docs/archived/REVIEW_REQUEST_v4.32.0.md`)
 5. v4.31.8~9 새 코드의 정확성 (`train_sim.py`, 33번 셀, 15번 셀의 시험 TASK 제외, 사라진 TASK, ULD 교체 연결)
 6. 일관성: `notebook_cells.json` ↔ 노트북 셀, GPU 워커 노트북 ↔ Colab 노트북(`W_ROLE` 한 줄만 다름), 버전 문자열 4.32.0 (`Code.gs`는 바뀌지 않아 `COLLECTOR_VERSION` 4.31.9 그대로)
 

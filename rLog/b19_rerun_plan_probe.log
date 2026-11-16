@@ -1,0 +1,3 @@
+paused_writes [('arb/signal_plan/confirm_choice__p__2.json', 'plan'), ('arb/signal_done/confirm_choice__p__2.json', 'done'), ('arb/ARBITER.json', 'round')] saved_done None saved_admin False state quarantine
+normal_done {'sid': 'confirm_choice__p__2', 'seq': 1, 'result': 'done', 'effects': {'lock': 'invalid:choice_not_open'}, 'at': 1762995820, 'by_session': 'MS1', 'by_epoch': 1} normal_state quarantine
+changed_admin_protect [] changed_admin_done {'sid': 'confirm_choice__p__2', 'seq': 1, 'result': 'done', 'effects': {'lock': 'invalid:choice_not_open'}, 'at': 1762995820, 'by_session': 'MS1', 'by_epoch': 1} state quarantine

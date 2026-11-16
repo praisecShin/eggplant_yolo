@@ -19,7 +19,7 @@ for v in ("4.31.9", "4.31.12", "4.31.10", "4.31.11"):
 check(latest(N, "eggplant_yolo_colab").name == "eggplant_yolo_colab_v4.31.12.ipynb", "버전 번호로 가장 새 노트북 (4.31.12 > 4.31.9)")
 
 # ---- R11: Drive(D)와 로컬(B)을 따로 두고, 받는 사이 Drive의 다른 TASK 기록이 바뀌어도 덮지 않음
-sys.path.insert(0, str(PKG / "notebooks"))
+sys.path.insert(0, str(PKG / "notebooks" / "K_kaggle"))
 import kaggle_cpu_master as m
 m.BASE = B
 m._remote = lambda rel="": str(D / rel)
@@ -68,7 +68,7 @@ m.poll_waiting_backups(None, wb, rb)
 check(json.loads((D / "relabel/tasks/2.json").read_text(encoding="utf-8"))["history"] == [{"note": "다시"}], "요청이 바뀌어 건너뛰면 TASK 기록도 올리지 않음")
 
 # ---- R12: 30번 셀 _rl_track_resume을 떼어 내 실행
-nb = json.load(open(latest(PKG / "notebooks", "eggplant_yolo_colab"), encoding="utf-8"))
+nb = json.load(open(latest(PKG / "notebooks" / "A0_colab", "eggplant_yolo_colab"), encoding="utf-8"))
 c30 = next("".join(c["source"]) for c in nb["cells"] if "".join(c["source"]).startswith("# 30."))
 src = "\n".join("" if l.lstrip().startswith(("!", "%")) else l for l in c30.splitlines())
 fns = {n.name: ast.get_source_segment(src, n) for n in ast.parse(src).body if isinstance(n, ast.FunctionDef)}

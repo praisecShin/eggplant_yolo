@@ -1,0 +1,10 @@
+failed transition auto= {
+  queued: { found: 1, queued: 1 },
+  error: 'reqDir.searchFiles is not a function',
+  pending: 1
+}
+retry auto= {
+  queued: { found: 0 },
+  error: 'reqDir.searchFiles is not a function',
+  pending: 1
+} requests= 0
