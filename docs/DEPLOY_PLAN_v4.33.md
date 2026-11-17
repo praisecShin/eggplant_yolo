@@ -43,7 +43,7 @@
 
 | 계정 | 프로젝트 | 파일 | 트리거 | Script Properties | 전환 때 할 일 |
 | --- | --- | --- | --- | --- | --- |
-| **G** | 수집기 (U1) | `Collector.gs`(0l) + `Uld.gs`(운영 K 프로젝트의 것 그대로 — 11/15 확인: 배정·깨우기를 부르지 않음) | 10분 | `BASE_FOLDER_ID`, CVAT 토큰, `CVAT_ORG`, `AUTO_PROJECT_ID`(자동 요청 범위 — 운영 eggplant, 시험 eggplant_AA), `AUTO_NAME_PREFIX`(시험만 `REH_`), `CVAT_PROJECT_ID`(수집 범위, 비우면 조직 전체), `ULD_ROOT_FOLDER_ID`, `ULD_SOURCE_FOLDER_ID`(GoPro_RAW), `ULD_ALERT_EMAIL` | 새로 만들고 권한 승인, 트리거 설치 |
+| **G** | 수집기 (U1) | `Collector.gs`(0n) + `Uld.gs`(운영 K 프로젝트의 것 그대로 — 11/15 확인: 배정·깨우기를 부르지 않음) | 10분 | `BASE_FOLDER_ID`, CVAT 토큰, `CVAT_ORG`, `AUTO_PROJECT_ID`(자동 요청 범위 — 운영 eggplant, 시험 eggplant_AA), `AUTO_NAME_PREFIX`(시험만 `REH_`), `CVAT_PROJECT_ID`(수집 범위, 비우면 조직 전체), `ULD_ROOT_FOLDER_ID`, `ULD_SOURCE_FOLDER_ID`(GoPro_RAW), `ULD_ALERT_EMAIL` | 새로 만들고 권한 승인, 트리거 설치 |
 | **G** | Keeper (U2) — 수집기와 **다른 프로젝트** | `Keeper.gs` | 1분 | `BASE_FOLDER_ID`, `ADMIN_FOLDER_ID`, `KAGGLE_USERNAME`, `KAGGLE_KEY`(K의 키), `MASTER_NB_SHA256`, `ALERT_EMAIL`, `NTFY_TOPIC`(휴대폰 푸시 주제 — 추측하기 어려운 이름으로, 비밀처럼) | 새로 만들고 `checkKeeperSetup` → `installKeeperTrigger` |
 | **K** | 옛 수집기 (지금 운영 중) | `Code.gs` 4.31.9 | — | — | 트리거 삭제, Script Properties의 CVAT 토큰 삭제. 프로젝트는 7일 뒤 정리 |
 | **A0** | 없음 | — | — | — | 남은 트리거가 없는지 한 번 확인 |
@@ -125,6 +125,7 @@ A0 토큰이라 rclone으로는 `eggplant_admin`에도 쓸 수 있습니다. 관
 | T15★ | 실행기 종료와 CVAT 서버 가져오기 작업 종료의 차이, 승인 뒤 네트워크 timeout, 권한을 잃은 뒤 복원하지 않음, 업로드 전 백업·사람 라벨 보호 | 예행 연습 (`REH_` TASK) | 설계대로 | 처리기 수정 |
 | T16★ | 승인된 배포 파일만 실행(검증한 바이트 사용), 변조·최소 버전 아래 실행 거절, 비밀 값이 요청·상태·예외·메일에 남지 않음 | 예행 연습 | 거절·흔적 없음 | 수정 |
 | T17 | 수집기의 요청 찾기(Drive 검색 `title contains 'REQ_<요청ID>__'`)가 밑줄 많은 이름을 찾는지, 만든 직후 얼마 만에 검색되는지 | 예행 연습: `REH_` TASK를 `_vf`로 바꾸고 장부 쓰기를 한 번 막은 뒤 다음 수집 | 같은 요청 파일 하나, 장부 마저 씀 | 10분 기다림 값 조정 (b18 Y4) |
+| T18 | 같은 이름 파일 둘을 일부러 만든 `REH_` 요청: 마스터 목록에서 '모름'·`duplicate_path` 알림, rclone `cat`·`moveto`·`rcat`이 같은 이름 파일에서 어떻게 되는지 | 예행 연습 (`_test` 폴더) | 처리하지 않고 알림, CTRL앱 '읽지 못한 것'에 보임 | 관리자 정리 절차 확정 (b19 Z4) |
 
 T1~T4·T7·T11은 한 번에 할 수 있습니다 (짧은 Apps Script 함수 하나 + Kaggle 셀 하나).
 

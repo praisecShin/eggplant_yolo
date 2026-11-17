@@ -11,6 +11,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import shutil
 import subprocess
 import threading
 import time
@@ -147,6 +148,64 @@ class LocalStore:
             self.owners.setdefault(path, owner)        # 소유자는 처음 만든 계정 (덮어써도 유지)
         return True
 
+    def put_file(self, local: str, path: str):
+        """큰 파일 올리기 (산출물). 실패하면 StoreError (2b)."""
+        self._chk("write", path)
+        f = self.root / path
+        f.parent.mkdir(parents=True, exist_ok=True)
+        tmp = f.with_name(f"{f.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+        shutil.copyfile(local, tmp)
+        os.replace(tmp, f)
+        now = self.clock()
+        self._created.setdefault(path, now)
+        self._mod[path] = now
+
+    def get_file(self, path: str, local: str):
+        """큰 파일 받기. 없거나 실패하면 StoreError (2b)."""
+        self._chk("read", path)
+        src = self.root / path
+        if not src.is_file():
+            raise StoreError(f"받기 실패: {path}")
+        Path(local).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, local)
+
+    def list_any(self, prefix: str, recursive: bool = True) -> List[Entry]:
+        """JSON이 아닌 파일까지 (영상·백업·모델 찾기, 2b-6)."""
+        self._chk("list", prefix)
+        base = self.root / prefix
+        if not base.exists():
+            return []
+        out = []
+        for f in (base.rglob("*") if recursive else base.glob("*")):
+            if f.is_file() and not f.name.endswith(".tmp"):
+                rel = f.relative_to(self.root).as_posix()
+                st = f.stat()
+                out.append(Entry(rel, self.owners.get(rel, self.default_owner), st.st_mtime, st.st_mtime, st.st_size))
+        return out
+
+    def pull(self, prefix: str, local: str, include: Tuple[str, ...] = ()):
+        """prefix 아래를 local로 받음 (읽기 사본, 취합의 웹 상태 계산용). include는 rclone 무늬(prefix 기준)."""
+        import fnmatch
+        self._chk("read", prefix)
+        base = self.root / prefix
+        if not base.exists():
+            return
+        for f in base.rglob("*"):
+            rel = f.relative_to(base).as_posix()
+            if f.is_file() and (not include or any(fnmatch.fnmatch(rel, pat.lstrip("/")) for pat in include)):
+                dst = Path(local) / rel
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(f, dst)
+
+    def delete(self, path: str):
+        """파일 하나 지우기 (청소 관리 일만 씀, 2b-5). 없으면 그대로, 실패하면 StoreError."""
+        self._chk("delete", path)
+        f = self.root / path
+        if f.is_file():
+            f.unlink()
+        for d in (self._created, self._mod, self.owners):
+            d.pop(path, None)
+
     def rename(self, src: str, dst: str):
         self._chk("write", dst)
         (self.root / dst).parent.mkdir(parents=True, exist_ok=True)
@@ -257,6 +316,49 @@ class RcloneStore:
         if rc != 0:
             raise StoreError(f"이름 바꾸기 실패: {src}")
 
+    def list_any(self, prefix: str, recursive: bool = True) -> List[Entry]:
+        """JSON이 아닌 파일까지 (영상·백업·모델 찾기, 2b-6). 소유자 정보는 쓰지 않음."""
+        args = ["lsjson", self._r(prefix), "--files-only"] + (["-R"] if recursive else [])
+        rc, out, err = self.runner(args, None, max(self.timeout, 300))
+        if rc != 0:
+            if "directory not found" in (err or "").lower():
+                return []
+            raise StoreError(f"목록 실패: {prefix}")
+        try:
+            items = json.loads(out or "[]")
+        except Exception:
+            raise StoreError(f"목록 해석 실패: {prefix}")
+        pre = prefix if prefix.endswith("/") or not prefix else prefix + "/"
+        return [Entry(pre + it["Path"], "", _iso(str(it.get("ModTime", ""))), _iso(str(it.get("ModTime", ""))),
+                      int(it.get("Size", 0) or 0), created_known=False)
+                for it in items if isinstance(it, dict) and isinstance(it.get("Path"), str) and not it.get("IsDir")]
+
+    def pull(self, prefix: str, local: str, include: Tuple[str, ...] = ()):
+        """prefix 아래를 local로 받음 (읽기 사본). 바뀐 것만 (rclone copy --update)."""
+        args = ["copy", self._r(prefix), local, "--update"]
+        for pat in include:
+            args += ["--include", pat]
+        rc, out, err = self.runner(args, None, 1800)
+        if rc != 0 and "directory not found" not in (err or "").lower():
+            raise StoreError(f"받기 실패: {prefix}")
+
+    def delete(self, path: str):
+        """파일 하나 지우기 (청소 관리 일만, 2b-5). Drive 휴지통으로 감 (rclone 기본)."""
+        rc, out, err = self.runner(["deletefile", self._r(path)], None, self.timeout)
+        if rc != 0 and "not found" not in (err or "").lower():
+            raise StoreError(f"지우기 실패: {path}")
+
+    def put_file(self, local: str, path: str, timeout: float = 3600):
+        """큰 파일 올리기 (산출물, 2b). 제어 파일과 달리 시간 한도를 길게."""
+        rc, out, err = self.runner(["copyto", local, self._r(path)], None, timeout)
+        if rc != 0:
+            raise StoreError(f"올리기 실패: {path}")
+
+    def get_file(self, path: str, local: str, timeout: float = 3600):
+        rc, out, err = self.runner(["copyto", self._r(path), local], None, timeout)
+        if rc != 0 or not Path(local).is_file():
+            raise StoreError(f"받기 실패: {path}")
+
 
 # ---------------------------------------------------------------- 읽기·쓰기
 class Cache:
@@ -278,15 +380,25 @@ def snapshot(store, spec=ARBITER_SPEC, cache: Optional[Cache] = None, clock=time
         cache.last_full = started
     seen: Dict[str, Entry] = {}
     no_btime = 0
+    dup: Set[str] = set()
     for kind, prefix, recursive, include in spec:
         try:
+            here: Set[str] = set()
             for e in store.list(prefix, recursive, include):
+                if e.path in here:                    # 한 목록에 같은 경로가 둘 = 같은 이름 파일 여럿 (b19 Z4)
+                    dup.add(e.path)
+                here.add(e.path)
                 seen[e.path] = e
         except StoreError:
             unknown.add(kind)
             if prefix == "arb/":
                 unknown.add("asks")                   # 신청·보고도 arb/ 아래
+    for path in dup:                                  # 어느 것을 읽고 쓰는지 보장되지 않음 → 그 파일은 '모름' + 알림 (관리자가 하나를 지울 때까지)
+        unknown.add("file:" + path)
+        unknown.add("dup:" + path)
     for path, e in seen.items():
+        if path in dup:
+            continue
         no_btime += 0 if e.created_known else 1
         c = cache.items.get(path) if cache is not None else None
         if c and c[0] == e.modified and c[1] == e.size:
@@ -294,8 +406,8 @@ def snapshot(store, spec=ARBITER_SPEC, cache: Optional[Cache] = None, clock=time
         else:
             try:
                 obj = store.read_json(path)
-                if not isinstance(obj, dict):                # 문법은 맞아도 객체가 아니면 그 파일만 '모름' (Q7)
-                    raise StoreError(f"형태가 다름: {path}")
+                # 문법은 맞는데 객체가 아니면 '모름'이 아니라 그대로 넘김 — 심판이 형태 검사로 거절(바깥 입력)·보호 모드(판정 파일).
+                # '모름'은 판정 보류(0o)라서, 고쳐지지 않는 잘못된 바깥 파일 하나가 전체를 멈추게 하면 안 됨 (Q7 → 0o)
             except StoreError:
                 unknown.add("file:" + path)
                 if path == "jobs/ARBITER_GRANT.json":

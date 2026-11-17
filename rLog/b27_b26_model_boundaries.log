@@ -1,0 +1,5 @@
+{"case": "metadata", "train": {"metrics": [1]}, "rows": [{"name": "bad", "version": "v", "map5095": null, "map50": null, "classes": null, "imgsz": null, "time": ""}, {"name": "good", "version": "v", "map5095": null, "map50": null, "classes": null, "imgsz": null, "time": ""}], "skipped": []}
+{"case": "metadata", "train": {"args": [1]}, "rows": [{"name": "bad", "version": "v", "map5095": null, "map50": null, "classes": null, "imgsz": null, "time": ""}, {"name": "good", "version": "v", "map5095": null, "map50": null, "classes": null, "imgsz": null, "time": ""}], "skipped": []}
+{"case": "metadata", "train": [], "rows": [{"name": "bad", "version": "v", "map5095": null, "map50": null, "classes": null, "imgsz": null, "time": ""}, {"name": "good", "version": "v", "map5095": null, "map50": null, "classes": null, "imgsz": null, "time": ""}], "skipped": []}
+{"case": "legacy_adopted", "models": ["good"], "skipped": [["legacy", "legacy_paths_invalid"]]}
+legacy_web returned

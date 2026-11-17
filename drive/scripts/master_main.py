@@ -30,7 +30,7 @@ import arbiter as A
 from arb_io import Beat, RcloneStore, StoreError
 from arb_master import MasterLoop, Probes, RoundSummary
 
-VERSION = "4.33.0i"
+VERSION = "4.33.0p"
 
 GPU_META = "kernel-metadata-gpu-worker.json"     # 배포 목록 안의 GPU 작업자 실행 설정
 GPU_GAP = 600                                     # GPU 작업자 올린 뒤 10분은 다시 올리지 않음 (Kaggle이 띄우는 데 몇 분)
@@ -302,8 +302,10 @@ class WorkerSupervisor:
     """검증한 파일로 CPU 작업 프로세스를 띄우고 지켜봄. 끝낼 때는 멈춤 파일 → 지금 단계를 마치고 끝남."""
 
     def __init__(self, code_dir: Path, base_remote: str, accounts_file: Path, caps: str, fp: str,
-                 spawn: Callable[[List[str], Dict[str, str]], Any] = None, clock=time.time, env: str = "kgw"):
+                 spawn: Callable[[List[str], Dict[str, str]], Any] = None, clock=time.time, env: str = "kgw",
+                 test: bool = False, exec_file: Optional[Path] = None):
         self.code_dir, self.base, self.accounts_file, self.caps, self.fp = code_dir, base_remote, accounts_file, caps, fp
+        self.test, self.exec_file = test, exec_file
         self.spawn = spawn or (lambda cmd, envv: subprocess.Popen(cmd, env=envv))
         self.clock, self.env = clock, env
         self.proc, self.session = None, None
@@ -316,7 +318,8 @@ class WorkerSupervisor:
                 "sys.exit(worker_cpu.main(sys.argv[2:]))")
         return [sys.executable, "-I", "-c", boot, str(self.code_dir), "--base", self.base,
                 "--accounts", str(self.accounts_file), "--caps", self.caps, "--session", self.session,
-                "--stop-file", str(self.stop_file)]
+                "--stop-file", str(self.stop_file)] + (["--test"] if self.test else []) \
+            + (["--exec-config", str(self.exec_file)] if self.exec_file else [])
 
     def tick(self) -> str:
         if self.proc is not None and self.proc.poll() is None:
@@ -415,6 +418,11 @@ def main(boot: Boot, store=None, admin=None, kaggle=None, spawn=None, cvat_impor
     accounts_file = Path(tempfile.mkdtemp(prefix="egg_cfg_")) / "accounts.json"
     accounts_file.write_text(json.dumps(load_config(admin.read_json)["accounts"]), encoding="utf-8")
     os.chmod(accounts_file, 0o600)
+    import exec_host as EH
+    exec_file = accounts_file.parent / "exec.json"                  # 비밀 아님 (CVAT 주소·시험 프로젝트 번호)
+    ecfg = EH.load_exec_config(admin)
+    EH.HostConfig(test=boot.test, caps=["cpu"], exec_cfg=ecfg).project_scope()   # 시험인데 프로젝트 번호가 없으면 시작 전에 멈춤
+    exec_file.write_text(json.dumps(ecfg), encoding="utf-8")
 
     halt = threading.Event()
     pc = ProbeCache(store, kaggle, cvat_imports or cvat_import_query(boot.cvat_host, os.environ.get("CVAT_TOKEN")),
@@ -426,7 +434,7 @@ def main(boot: Boot, store=None, admin=None, kaggle=None, spawn=None, cvat_impor
     loop.ask_grant()
     gpu = GpuLauncher(boot.files, kaggle, boot.test, clock=clock)
     sup = WorkerSupervisor(write_code_dir(boot.files), boot.remote, accounts_file, "cpu,agg", fp, spawn=spawn,
-                           clock=clock)
+                           clock=clock, test=boot.test, exec_file=exec_file)
     started = clock()
     log(f"[마스터 {VERSION}] 세션 {me} · {'시험' if boot.test else '운영'} · 자격 신청함")
     reason, n = None, 0
@@ -444,7 +452,8 @@ def main(boot: Boot, store=None, admin=None, kaggle=None, spawn=None, cvat_impor
                 st = sup.tick()
                 if st in ("started", "restarted", "gave_up"):
                     log(f"작업 프로세스: {st} ({sup.session})")
-                g = gpu.maybe_start((loop.last_arbiter or {}).get("wake"))
+                # 이번 회차에 쓴 요약만 근거로 (arb/ 목록을 못 읽은 회차의 옛 요약으로 켜지 않음, b22 R2)
+                g = gpu.maybe_start((loop.last_arbiter or {}).get("wake") if getattr(loop, "last_arbiter_fresh", False) else None)
                 if g in ("pushed", "push_failed", "bad_deploy"):
                     log(f"GPU 작업자: {g}")
             reason = exit_reason(clock(), started, loop)

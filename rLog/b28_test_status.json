@@ -1,0 +1,112 @@
+[
+  {
+    "name": "cells",
+    "command": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_cells_433.py",
+      "drive"
+    ],
+    "rc": 0,
+    "seconds": 0.4,
+    "initial_rc": 1,
+    "note": "pandas 미설치 최초 실패는 b28_cells_missing_dependency.log, 의존성 설치 후 동일 명령 재실행 RESULT True"
+  },
+  {
+    "name": "hosts",
+    "command": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_hosts_433.py",
+      "drive"
+    ],
+    "rc": 0,
+    "seconds": 17.3
+  },
+  {
+    "name": "handlers",
+    "command": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_handlers_433.py",
+      "drive"
+    ],
+    "rc": 0,
+    "seconds": 2.0
+  },
+  {
+    "name": "e2e",
+    "command": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_e2e_433.py",
+      "drive"
+    ],
+    "rc": 0,
+    "seconds": 0.8
+  },
+  {
+    "name": "master",
+    "command": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_master_433.py",
+      "drive"
+    ],
+    "rc": 0,
+    "seconds": 1.6
+  },
+  {
+    "name": "arbiter",
+    "command": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_arbiter_433.py",
+      "drive"
+    ],
+    "rc": 0,
+    "seconds": 1.3
+  },
+  {
+    "name": "access",
+    "command": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_access_433.py",
+      "drive"
+    ],
+    "rc": 0,
+    "seconds": 0.1
+  },
+  {
+    "name": "master_main",
+    "command": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_master_main_433.py",
+      "drive"
+    ],
+    "rc": 0,
+    "seconds": 21.1
+  },
+  {
+    "name": "fuzz",
+    "command": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_fuzz_433.py",
+      "drive"
+    ],
+    "rc": 0,
+    "seconds": 12.6
+  },
+  {
+    "name": "b27_orphan_original",
+    "command": [
+      "/tmp/b24_venv/bin/python",
+      "rLog/b27_orphan_probe.py"
+    ],
+    "rc": 0,
+    "seconds": 60.6
+  },
+  {
+    "name": "b26_boundaries_original",
+    "command": [
+      "/tmp/b24_venv/bin/python",
+      "rLog/b26_process_boundaries.py"
+    ],
+    "rc": 1,
+    "seconds": 0.6
+  }
+]

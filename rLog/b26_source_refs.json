@@ -1,0 +1,31 @@
+{
+  "public_sources": [
+    {
+      "url": "https://raw.githubusercontent.com/pytorch/pytorch/v2.5.1/torch/distributed/elastic/multiprocessing/subprocess_handler/subprocess_handler.py",
+      "finding": "SubprocessHandler._popen sets start_new_session=True on POSIX"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/pytorch/pytorch/v2.9.0/torch/distributed/elastic/multiprocessing/subprocess_handler/subprocess_handler.py",
+      "finding": "same new-session behavior"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/pytorch/pytorch/v2.9.0/torch/distributed/elastic/multiprocessing/api.py",
+      "finding": "SubprocessContext._close has separate worker group close and a default 30 second grace"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/ultralytics/ultralytics/main/ultralytics/utils/dist.py",
+      "finding": "generate_ddp_command uses torch.distributed.run; generated files under USER_CONFIG_DIR/DDP"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/ultralytics/ultralytics/main/ultralytics/utils/__init__.py",
+      "finding": "get_user_config_dir selects YOLO_CONFIG_DIR or XDG_CONFIG_HOME/default user config; SETTINGS_FILE uses it"
+    }
+  ],
+  "local_ultralytics_version": "8.4.215",
+  "local_source_hashes": {
+    "utils/__init__.py": "33647de7592615e51485e9c577c92bdb31670ecf373b8e333aa3448df92dd0fc",
+    "utils/dist.py": "6d07354fe7da107d7a8a82252e9f6bd0080baa421c33b0494f572cc82475f918",
+    "utils/callbacks/base.py": "1edff1a0edf0e5605bfe0ad74eca6c0ec191a5987151e1f811e6a3122cd3d283",
+    "data/dataset.py": "53f35dd2919f657cd45204aa6efd5b3fcfce50caf7b272d4eef22d6db040c94b"
+  }
+}

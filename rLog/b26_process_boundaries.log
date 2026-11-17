@@ -1,0 +1,4 @@
+{"case": "setsid", "leader_pgid": 5, "detached_pgid": 6, "detached_live": true, "leader_group_alive": false}
+{"case": "zombie_only", "state": "Z", "group_alive": true, "error": "RuntimeError:학습 프로세스 묶음을 끝내지 못함 — 수동 확인 필요", "seconds": 10.2}
+{"case": "permission_zero", "group_alive": true}
+{"case": "permission_terminate", "exception": "PermissionError"}

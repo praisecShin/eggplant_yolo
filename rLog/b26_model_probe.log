@@ -1,0 +1,3 @@
+{"manifest": [], "models": [{"name": "good", "version": "v1", "adopted_at": null, "files": {"best.pt": "runs/good/v/v1/best.pt"}, "sizes": {"best.pt": 1}, "meta": {}}]}
+{"manifest": null, "models": [{"name": "good", "version": "v1", "adopted_at": null, "files": {"best.pt": "runs/good/v/v1/best.pt"}, "sizes": {"best.pt": 1}, "meta": {}}]}
+{"manifest": {"verified": true, "files": {"best.pt": []}}, "models": [{"name": "good", "version": "v1", "adopted_at": null, "files": {"best.pt": "runs/good/v/v1/best.pt"}, "sizes": {"best.pt": 1}, "meta": {}}]}

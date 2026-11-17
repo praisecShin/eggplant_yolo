@@ -587,7 +587,7 @@ s.request("w1", "restore23", [])
 s.round()
 check(s.o(A.P_ARBITER)["wake"]["runnable"] == 0, "맞는 실행기가 없는 일은 '실행 가능'으로 세지 않음")
 s = basic(); s.round()
-s.request("w2", "track", [1]); s.round(unknown={"workers"})
+s.request("w2", "track", [1]); s.round()
 check(s.o(A.P_ARBITER)["wake"]["runnable"] == 1, "GPU 일은 마스터가 GPU 작업자를 켤 수 있으므로 실행 가능")
 
 # ======================================================== 새 TASK 후보 판정 (L3)
@@ -621,12 +621,14 @@ s.round(crash_after=i_res + 1)                       # 결과 기록까지만
 check(any(r.get("job") == tl["run"] for r in s.results("tr")) and s.o("runs/m/CURRENT.json")["version"] == "VA",
       "학습 결과 기록만 쓰고 끊김 (채택 표시는 그대로)")
 s.request("fn", "force_new", [], name="m")
-s.tick(20); s.round(unknown={"file:" + ask_p})      # 옛 보고는 잠시 못 읽음
+hid = s.f.pop(ask_p)                                 # 옛 보고는 잠시 목록에 안 보임 (0o: '모름'이면 그 회차는 판정하지 않으므로 '안 보임'으로)
+s.tick(20); s.round()
 mg = s.o(A.P_LOCK_MGMT)
 s.run_report("C1", "mgmt", "done_job", run=mg["run"], rid="fn", gen=mg["gen"], decision=mg["decision"], result="done",
              current_change={"type": "model", "name": "m", "version": None})
-s.tick(20); s.round(unknown={"file:" + ask_p})
+s.tick(20); s.round()
 check(s.o("runs/m/CURRENT.json")["version"] is None, "그사이 FORCE_NEW가 채택 표시를 바꿈")
+s.f[ask_p] = hid
 s.tick(20); s.round()                                # 옛 보고가 다시 보임 → 이어 하기
 fl = s.o(A.P_FLAGS + f"model__m__{tl['run']}.json") or {}
 check(s.o("runs/m/CURRENT.json")["version"] is None and fl.get("reason") == "superseded"
@@ -660,11 +662,11 @@ check(any(r["task"] == "create" and r.get("task_id") == 777 for r in s.results("
 # N3: 개별 파일 모름 → 인계를 미뤄 두었다가 읽히면 마저 함 / 보고는 처리됨으로 두지 않음
 s = assigned_sim()
 s.grant(2, session="MS2"); s.tick(20)
-s.round(unknown={"file:" + A.P_LOCK_TASK + "7.json"})
-check(s.o(A.P_HANDOVER + "2.json")["pending"] == [A.P_LOCK_TASK + "7.json"] and s.lock(7)["epoch"] == 1,
-      "첫 회에 잠금 하나를 못 읽음 → 인계 기록에 '미룬 자원'")
+r = s.round(unknown={"file:" + A.P_LOCK_TASK + "7.json"})
+check(s.o(A.P_HANDOVER + "2.json") is None and s.lock(7)["epoch"] == 1 and "hold_on_unknown" in r.notes,
+      "첫 회에 잠금 하나를 못 읽음 → 인계를 하지 않고 판정 보류 (0o)")
 s.tick(20); s.round()
-check(s.lock(7)["epoch"] == 2 and s.o(A.P_HANDOVER + "2.json")["pending"] == [], "읽히는 회차에 그 자원만 마저 인계 (N3)")
+check(s.lock(7)["epoch"] == 2 and s.o(A.P_HANDOVER + "2.json")["pending"] == [], "읽히는 회차에 인계를 마침 (N3 → 0o)")
 s, tl = train_sim()
 s.put(f"runs/m/v/{tl['run']}/_files.json", {"files": {"w": "h"}, "train_keys": ["t1"]})
 s.run_report("G1", "train", "done_run", type_="model", name="m", run=tl["run"], rid="tr", gen=tl["gen"],
@@ -750,7 +752,9 @@ for choice, want_state in (("adopt", "adopted"), ("discard", "discarded")):
     i_fl = [w.why for w in dry.writes].index("adopt_wait")
     s.round(crash_after=i_fl + 1)                    # 결과·채택 대기 표시까지만
     sid = s.signal("adopt_choice", type="model", name="m", run=tl["run"], choice=choice)
-    s.tick(20); s.round(unknown={"file:" + ask_p})   # 옛 완료 보고는 잠시 못 읽음
+    hid = s.f.pop(ask_p)                             # 옛 완료 보고는 잠시 안 보임
+    s.tick(20); s.round()
+    s.f[ask_p] = hid
     s.tick(20); s.round()                            # 옛 완료 보고를 이어 처리
     fl = s.o(A.P_FLAGS + f"model__m__{tl['run']}.json")
     want_ver = tl["run"] if choice == "adopt" else "VB"
@@ -1234,6 +1238,177 @@ r = s.round(); s.tick(20); r2 = s.round()
 check(len(s.assigns("dup1")) == 1 and s.intake("dup1").get("ok") is not None
       and any(isinstance(x.obj, dict) and x.obj.get("kind") == "duplicate_request" for p_, x in s.f.items() if p_.startswith(A.P_ALERT)),
       "같은 요청 ID 파일이 둘이어도 접수·배정은 하나, 알림을 남김 (Y4)")
+
+# ---------------------------------------------------------------- b19 회귀 (0m)
+s = approved_sim(); lk = s.lock(7); s.kill("E1"); s.tick(200); s.round()
+sid = s.signal("confirm_choice", task="7", decision=lk["decision"], choice="ok", force=True)
+s.tick(20); s.round(crash_after=1)
+sp = A.P_SIGNALS + sid + ".json"; real = s.f[sp]
+s.f[sp] = FileRec(real.obj, "", real.created, real.modified)
+s.tick(20); r = s.round()
+check(s.done(sid) is None and s.lock(7).get("state") == "quarantine" and not r.protect,
+      "계획을 이어 할 때 신호 소유 계정을 모르면 끝내지 않고 미룸 (Z1)")
+s.f[sp] = real; s.tick(20); s.round()
+check(s.lock(7).get("state") == "free" and "applied" in str(s.done(sid)), "다시 읽히면 관리자 강제 해제를 마침 (Z1)")
+# G의 해제(원래 관리자 신호 연결) 계획 뒤 그 관리자의 해제 권한이 철회됨 → 거절
+s = basic()
+st = s.signal("stop"); s.tick(20); s.round(); s.tick(20); s.round()
+orig = s.signal("wake", stop_id=st)
+rl = s.signal("release", owner=G, stop_id=st, origin_signal=orig)
+s.tick(20); s.round(crash_after=1)
+assert A.P_PLAN + rl + ".json" in s.f and s.done(rl) is None
+s.people = [dict(PEOPLE[0], perms=["request", "wake"]), PEOPLE[1]]
+s.tick(20); r = s.round()
+check(s.o(A.P_HOLD + st + ".json")["active"] and "invalid:revoked" in str(s.done(rl)) and not r.protect,
+      "해제 계획 뒤 원래 관리자의 해제 권한이 철회되면 아직 적용하지 않은 해제는 거절 (Z1)")
+s2 = basic()
+st = s2.signal("stop"); s2.tick(20); s2.round(); s2.tick(20); s2.round()
+orig = s2.signal("wake", stop_id=st)
+rl = s2.signal("release", owner=G, stop_id=st, origin_signal=orig)
+s2.tick(20); s2.round(crash_after=1)
+o_ = s2.f[A.P_SIGNALS + orig + ".json"]; s2.f[A.P_SIGNALS + orig + ".json"] = FileRec(o_.obj, "", o_.created, o_.modified)
+s2.tick(20); s2.round()
+check(s2.done(rl) is None and s2.o(A.P_HOLD + st + ".json")["active"], "원래 신호의 소유 계정을 모르면 G의 해제도 미룸 (Z1)")
+
+# ---------------------------------------------------------------- b20 회귀 (0n)
+def round_hidden(s, paths, dup=True, **inp):
+    """snapshot이 같은 이름 파일(또는 읽기 실패)로 그 경로를 빼고 '모름'으로 넘긴 회차를 흉내."""
+    files = {p_: r_ for p_, r_ in s.f.items() if p_ not in paths}
+    unk = {"file:" + p_ for p_ in paths} | ({"dup:" + p_ for p_ in paths} if dup else set())
+    cfg = Cfg(me=s.me, accounts=ACC, people=s.people)
+    res = A.decide_round(cfg, Inputs(now=s.now, files=files, list_started_at=s.now - 3, unknown=unk, **inp))
+    for w in res.writes:
+        if w.mode == "create" and w.path in s.f:
+            continue
+        s.put(w.path, w.obj)
+    return res
+# ① 정지 보류가 같은 이름 둘 → 모름: 새 배정·GPU 필요 없음, 그 경로에 쓰지 않음
+s = basic(); s.worker("G2", ["gpu"])
+st = s.signal("stop"); s.tick(20); s.round(); s.tick(20); s.round()
+hp = A.P_HOLD + st + ".json"
+s.request("t99", "track", [99]); s.tick(20)
+r = round_hidden(s, {hp})
+check(not s.assigns("t99", "active") and "hold_on_unknown" in r.notes and not any(w.path == hp for w in r.writes)
+      and s.o(A.P_ARBITER)["wake"]["holds_unknown"] is True and "(모름)" in s.o(A.P_ARBITER)["wake"]["holds"]
+      and s.o(A.P_ARBITER)["wake"]["gpu_needed"] == 0,
+      "정지 보류 파일이 같은 이름 둘(모름)이면 보류가 있는 것으로 보고 새 배정·GPU 기동 없음, 그 경로에 쓰지 않음 (Q1)")
+check(any(isinstance(x.obj, dict) and x.obj.get("kind") == "duplicate_path" for p_, x in s.f.items() if p_.startswith(A.P_ALERT)),
+      "같은 이름 파일 알림이 남음")
+# ② 계획이 같은 이름 둘 → 그 신호를 미루고 계획·보류·완료를 쓰지 않음
+s = basic(); s.worker("G2", ["gpu"]); s.round(); s.round()
+st = s.signal("stop"); s.tick(20); s.round(crash_after=1)
+pp = A.P_PLAN + st + ".json"; assert pp in s.f
+s.tick(20); r = round_hidden(s, {pp})
+check(not any(w.path in (pp, A.P_HOLD + st + ".json", A.P_DONE + st + ".json") for w in r.writes) and s.done(st) is None,
+      "신호 계획이 같은 이름 둘이면 그 신호를 미루고 계획·보류·완료를 다시 쓰지 않음 (Q1)")
+s.tick(20); s.round()
+check((s.done(st) or {}).get("result") == "done" and s.o(A.P_HOLD + st + ".json")["active"], "하나만 남으면 이어서 마침")
+# ③ 완료 기록이 같은 이름 둘 → 다시 쓰지 않음
+s = basic()
+st = s.signal("stop"); s.tick(20); s.round(); s.tick(20); s.round()
+dp = A.P_DONE + st + ".json"; assert dp in s.f
+s.tick(20); r = round_hidden(s, {dp})
+check(not any(w.path == dp or w.path == A.P_PLAN + st + ".json" for w in r.writes), "완료 기록이 같은 이름 둘이면 다시 계획·완료를 쓰지 않음 (Q1)")
+# ④ 효과를 쓸 경로가 모름(보류 경로만 같은 이름 둘)이면 완료로 적지 않음
+s = basic(); s.round(); s.round()
+st = s.signal("stop"); s.tick(20); s.round(crash_after=1)
+r = round_hidden(s, {A.P_HOLD + st + ".json"})
+check(s.done(st) is None and not any(w.path == A.P_HOLD + st + ".json" for w in r.writes) and "hold_on_unknown" in r.notes,
+      "효과를 쓸 경로를 모르면 그 회차는 판정 보류 — 쓰지 않고 완료로도 적지 않음 (Q1 → 0o)")
+
+# ⑤ 인계 기록이 같은 이름 둘 → 인계를 되풀이하지 않음
+s = basic(); s.round(); s.round()
+hp_ = A.P_HANDOVER + "1.json"; assert hp_ in s.f
+s.grant(1); s.tick(20); r = round_hidden(s, {hp_})
+check("hold_on_unknown" in r.notes and not any(w.path.startswith(A.P_RECOVERY) or w.path == hp_ for w in r.writes),
+      "인계 기록을 모르면 인계(다시 발급)를 되풀이하지 않고 기다림 (Q1)")
+
+# Q2: G 해제의 원래 신호를 못 읽음 → 미룸, 다시 읽히면 해제
+for dup_ in (False, True):
+    s = basic()
+    st = s.signal("stop"); s.tick(20); s.round(); s.tick(20); s.round()
+    orig = s.signal("wake", stop_id=st)
+    rl = s.signal("release", owner=G, stop_id=st, origin_signal=orig)
+    s.tick(20); s.round(crash_after=1)
+    op = A.P_SIGNALS + orig + ".json"
+    s.tick(20); round_hidden(s, {op}, dup=dup_)
+    check(s.done(rl) is None and s.o(A.P_HOLD + st + ".json")["active"],
+          f"원래 신호를 {'같은 이름 둘이라' if dup_ else '읽지 못해'} 모르면 해제를 거절하지 않고 미룸 (Q2)")
+    s.tick(20); s.round()
+    check((s.done(rl) or {}).get("result") == "done" and not s.o(A.P_HOLD + st + ".json")["active"], "다시 읽히면 해제를 마침 (Q2)")
+# 계획을 처음 세울 때도 같은 규칙
+s = basic()
+st = s.signal("stop"); s.tick(20); s.round(); s.tick(20); s.round()
+orig = s.signal("wake", stop_id=st)
+rl = s.signal("release", owner=G, stop_id=st, origin_signal=orig)
+s.tick(20); round_hidden(s, {A.P_SIGNALS + orig + ".json"}, dup=False)
+check(s.done(rl) is None and A.P_PLAN + rl + ".json" not in s.f, "새 해제 신호도 원래 신호를 모르면 거절하지 않고 미룸 (Q2)")
+s.tick(20); s.round(); s.tick(20); s.round()
+check((s.done(rl) or {}).get("result") == "done", "다시 읽히면 계획부터 세워 마침")
+# 원래 신호가 정말 없으면 거절 (그대로)
+s = basic()
+st = s.signal("stop"); s.tick(20); s.round(); s.tick(20); s.round()
+rl = s.signal("release", owner=G, stop_id=st, origin_signal="wake__p__999")
+s.tick(20); s.round()
+check((s.done(rl) or {}).get("result") == "rejected" and "origin_missing" in str(s.done(rl)), "원래 신호가 정말 없으면 거절 (그대로)")
+
+# ---------------------------------------------------------------- b21 회귀 (0o: 읽지 못한 것이 있으면 그 회차는 판정 보류)
+def only_round_writes(r):
+    return [w.path for w in r.writes if w.path != A.P_ARBITER and not w.path.startswith(A.P_ALERT)]
+# P1: 반환된 배정 파일을 못 읽는 회차 → 잠금·배정을 만들지 않음, 다시 읽히면 정상 재배정
+s = assigned_sim()
+s.release("E1", "r1"); s.tick(20); s.round()
+k1 = [p_ for p_ in s.f if p_.startswith(A.P_ASSIGN)][0]
+s.worker("E2", ["gpu"]); s.tick(20)
+r = round_hidden(s, {k1}, dup=False)
+check("hold_on_unknown" in r.notes and not only_round_writes(r), "배정 파일을 못 읽는 회차는 잠금·배정을 쓰지 않음 (P1 → 0o)")
+s.tick(20); s.round(); s.tick(20); s.round()
+act = s.assigns("r1", "active")
+check(len(act) == 1 and s.lock(act[0]["tasks"][0]).get("session") == act[0]["session"],
+      "다시 읽히면 배정과 잠금이 서로 맞게 다시 배정됨 (P1)")
+# P1②: 복구 요청 파일을 못 읽는 회차 → 접수·배정 없음
+s = approved_sim(); lk = s.lock(7); s.kill("E1"); s.tick(1200); s.round()
+sid = s.signal("confirm_choice", task="7", decision=lk["decision"], choice="redo")
+s.tick(20); s.round(crash_after=2)
+rq = [p_ for p_ in s.f if "__recovery__" in p_]
+if rq:
+    s.tick(20); r = round_hidden(s, set(rq), dup=False)
+    check("hold_on_unknown" in r.notes and not only_round_writes(r), "복구 요청 파일을 못 읽는 회차는 접수·배정을 하지 않음 (P1 → 0o)")
+s.worker("E3", ["gpu"]); s.tick(20); s.round(); s.tick(20); s.round()
+check((s.done(sid) or {}).get("result") == "done" and len([x for x in s.f if "__recovery__" in x]) == 1,
+      "다시 읽히면 복구 요청 하나로 이어 감 (P1)")
+# P2: 반환 보고를 처리할 회차에 TASK 잠금을 못 읽음 → 보고를 처리하지 않음, 다시 읽히면 잠금 해제
+s = assigned_sim()
+d0 = s.lock(7).get("decision")
+s.release("E1", "r1"); s.tick(20)
+r = round_hidden(s, {A.P_LOCK_TASK + "7.json"}, dup=False)
+check(not only_round_writes(r) and s.lock(7).get("state") == "held", "반환 보고 회차에 잠금을 못 읽으면 보고를 처리하지 않음 (P2 → 0o)")
+s.tick(20); s.round()
+check(s.lock(7).get("decision") != d0 and not any(a.get("decision") == d0 and a.get("state") == "active" for a in s.assigns("r1")),
+      "다시 읽히면 반환을 처리해 옛 잠금이 남지 않음 (새 배정으로 바뀜) (P2)")
+# P3: 해제 대상 보류를 못 읽음 → 해제 신호를 끝내지 않음, 다시 읽히면 해제
+s = basic(); s.round(); s.round()
+st = s.signal("stop"); s.tick(20); s.round(); s.tick(20); s.round()
+rl = s.signal("release", stop_id=st); s.tick(20)
+r = round_hidden(s, {A.P_HOLD + st + ".json"}, dup=False)
+check(s.done(rl) is None and not only_round_writes(r), "해제할 보류를 못 읽으면 해제 신호를 끝내지 않음 (P3 → 0o)")
+s.tick(20); s.round()
+check((s.done(rl) or {}).get("result") == "done" and not s.o(A.P_HOLD + st + ".json")["active"], "다시 읽히면 해제 (P3)")
+# P4: 판정 보류가 30분 넘게 이어지면 알림 한 번, 시작 시각은 그대로
+s = basic(); s.round(); s.round()
+st = s.signal("stop"); s.tick(20); s.round(); s.tick(20); s.round()
+hp4 = A.P_HOLD + st + ".json"
+r = round_hidden(s, {hp4}, dup=False); since = s.o(A.P_ARBITER)["hold_on_since"]
+for _ in range(31):
+    s.tick(60); round_hidden(s, {hp4}, dup=False)
+al = [x.obj for p_, x in s.f.items() if p_.startswith(A.P_ALERT) and isinstance(x.obj, dict) and x.obj.get("kind") == "hold_on_long"]
+check(s.o(A.P_ARBITER)["hold_on_since"] == since and len(al) == 1 and al[0]["unknown"] == ["file:" + hp4],
+      "판정 보류가 30분 넘으면 'hold_on_long' 알림 하나 (Keeper가 메일), 시작 시각 유지 (P4)")
+s.tick(20); s.round()
+check(not s.o(A.P_ARBITER).get("hold_on") and "hold_on_since" not in s.o(A.P_ARBITER), "다시 읽히면 판정 보류 끝")
+w_ = s.o(A.P_ARBITER)
+s.tick(20); round_hidden(s, {hp4}, dup=False)
+check(s.o(A.P_ARBITER)["hold_on_since"] == s.now, "다시 못 읽으면 새 구간으로 시작")
 
 print("RESULT", ok)
 sys.exit(0 if ok else 1)

@@ -1,0 +1,11 @@
+Traceback (most recent call last):
+  File "/mnt/c/Users/user/Project/eggplant_v4.33.0/rLog/b28_supervisor_probe.py", line 21, in <module>
+    pid=int((td/'out/grand.pid').read_text());st=HR._stat(pid)
+            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.14/pathlib/__init__.py", line 788, in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors, newline=newline) as f:
+         ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/pathlib/__init__.py", line 772, in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/b28_supervisor_l56ayxux/out/grand.pid'

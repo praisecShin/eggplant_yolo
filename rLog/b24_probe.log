@@ -1,0 +1,10 @@
+T1 server_job=started; polling GET returns 401
+T1 result= failed:import(restored) writes= [('remove_annotations', 1), ('remove_annotations', 1), ('import_annotations', 1, 'CVAT 1.1')] first_server_job_still_started= True
+S2 terminal failed classification= BackgroundRequestException rejected= False
+T2 restore= {'report': 'done_job', 'result': 'done', 'current_change': {'type': 'model', 'name': 'm_A', 'version': 'run'}}
+T2 consume= MgmtFailed model_unverified
+T3 test writes outside scope= ('remove_annotations', 2) {'id': 2, 'name': 'production_vf', 'project_id': 99, 'size': 0, 'labels': ['fruit', 'bud'], 'updated': '2026-11-16T00:00:02Z'}
+T4 DDP callback serialization= TypeError cannot pickle '_thread.lock' object
+상태 파일: TASK 0개 · 모델 0개 (0초)
+T5 real WebState models= [] remote models= ['runs/trained/CURRENT.json', 'runs/m_A/CURRENT.json', 'runs/m_A/v/run/_files.json', 'runs/m_A/v/run/RESTORED_FROM.json', 'runs/trained/v/v1/_files.json']
+T6 after successful job summary= {'last': None, 'runs': 0, 'worked': None}

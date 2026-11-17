@@ -61,6 +61,26 @@ def executing(ctx: ExecContext):
         _CTX.reset(tok)
 
 
+_EXEC_SCOPE: contextvars.ContextVar[bool] = contextvars.ContextVar("egg_exec_scope", default=False)
+
+
+@contextlib.contextmanager
+def exec_scope():
+    """실행기가 한 걸음을 처리하는 동안만 (2c-1). 같은 Colab 커널에서 30번 셀(실행기)이 돌 때 분석 셀의 가드가
+    실행기의 쓰기를 막지 않게 함. 실행기가 멈추면(이 블록을 벗어나면) 다른 셀의 쓰기는 다시 막힘."""
+    if mode() != "exec":
+        raise AccessError("실행 범위는 실행기(EGG_ACCESS=exec)에서만")
+    tok = _EXEC_SCOPE.set(True)
+    try:
+        yield
+    finally:
+        _EXEC_SCOPE.reset(tok)
+
+
+def in_exec_scope() -> bool:
+    return mode() == "exec" and _EXEC_SCOPE.get()
+
+
 def can_write_cvat() -> bool:
     return mode() == "exec" and current() is not None
 
@@ -250,6 +270,15 @@ class Saver:
 # ---------------------------------------------------------------- 권한 확인 (G1·H1)
 class AuthorityLost(AccessError):
     pass
+
+
+class NeedsCheck(RuntimeError):
+    """처리기가 결과를 확정할 수 없음 → 실행기는 '멈춤 보고'(stop_run), 심판은 '확인 필요'로 둠 (b26 U2).
+    reason은 짧은 영문 표식 (예: cleanup_unknown)."""
+
+    def __init__(self, reason: str, detail: str = ""):
+        super().__init__(f"{reason}: {detail}" if detail else reason)
+        self.reason = reason
 
 
 class WaitReissue(AccessError):

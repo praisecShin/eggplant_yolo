@@ -1,0 +1,2 @@
+{"early_exit": false, "error": "AuthorityLost", "grandchild_alive_after_return": false}
+{"early_exit": true, "error": "RuntimeError", "grandchild_alive_after_return": false}

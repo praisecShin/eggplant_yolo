@@ -1,0 +1,28 @@
+{"case": "restart_thread_gap", "error": "AnalysisRefused('공유 폴더에 쓸 수 없습니다 (열기(쓰기): not_permitted:shared/during_restart) — 결과는 OUT(분석 폴더)에, 바꾸는 일은 request(...)로')"}
+{"case": "switch_person", "success": true}
+{"case": "same_day_last_upload", "selected": {"result_file": "old.xml", "run_time": "2026-11-17 11:00:00", "model": "", "kind": "upload", "source": "v4.32", "before_file": "", "status": "업로드 완료", "video": "", "task_name": ""}, "expected": "old.xml"}
+영상 video.mp4: 10x10, 30.0fps, 20프레임 / TASK 프레임 0~19 step 1
+{"case": "cell11_video_string", "success": true}
+TASK 줄을 자세히 보려면 AC_VIEW = 'tasks', AC_JOB = '<job_id>'
+작업 0개
+Empty DataFrame
+Columns: []
+Index: []
+{"case": "cell26_jobs", "rows": 0}
+TASK 줄 1개
+                  time action status  ... summary    job_id     source
+0  2026-11-17 10:00:00  track   done  ...     요청   v4.33:J1  v4.33 실행기
+
+[1 rows x 15 columns]
+{"case": "cell26_tasks", "rows": 1}
+TASK 1개의 이력 1줄 (시간순) — 박스 = 그 시점의 라벨 박스 수 (백업은 track 키프레임만)
+  TASK                   시각     작업  ... 작업자              파일   메모
+0    1  2026-11-17 10:00:00  track  ...      recovery/1/J1/  요청 
+
+[1 rows x 12 columns]
+{"case": "cell26_history", "rows": 1}
+{"case": "when_format", "stamp": "2026-11-17 11:00", "epoch": 1794880800.0}
+{"case": "when_format", "stamp": "2026-11-17T11:00:00.123456+09:00", "epoch": 1794880800.123456}
+{"case": "when_format", "stamp": "2026-11-17T02:00:00Z", "epoch": 1794880800.0}
+{"case": "when_format", "stamp": "2026-11-17T02:00Z", "epoch": 1794880800.0}
+{"case": "when_format", "stamp": "2026-11-17T02:00:00.123456Z", "epoch": 1794880800.123456}

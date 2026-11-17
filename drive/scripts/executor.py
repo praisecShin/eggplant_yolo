@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -31,7 +32,23 @@ SPEC = [
 RUN_LANES = ("mgmt", "train", "agg", "create")
 
 
+
+def _non_object_unknown(files, unknown):
+    """실행기 쪽: 객체가 아닌 파일은 '모름'으로 하고 읽는 목록에서 뺌 — 다른 코드가 그 값을 건드리지 못하게 (b22 R1).
+    (심판은 0o부터 그대로 받아 형태 검사, 실행기는 기다림으로)"""
+    unknown = set(unknown)
+    for p in [p for p, r in files.items() if not isinstance(r.obj, dict)]:
+        del files[p]
+        if p == A.P_GRANT or A.judgement_kind(p):     # 판정 파일·자격 → 모름(기다림). 심판은 보호 모드
+            unknown.add("file:" + p)
+            if p == A.P_GRANT:
+                unknown.add("grant")
+        # 바깥 입력(요청 등)이 객체가 아니면 그냥 뺌 — 심판이 거절하므로 실행기가 멈출 이유가 아님
+    return unknown
+
+
 @dataclass
+
 class Ctx:
     """핸들러가 받는 일의 정보."""
     rid: str
@@ -48,6 +65,8 @@ class Ctx:
     prepared: Any = None
     auth: Callable[[str], access.Authority] = None       # auth('recovery_publish'|'cvat_write'|'publish'|'run')
     step_log: Optional[access.StepLog] = None
+    progress: Callable[..., None] = lambda *a, **k: None  # 처리기가 오래 걸리는 일 중간에 부름 → 생존 신호의 진행 시각 (2b-1)
+    env: Any = None                                      # 처리기 환경 (저장소·CVAT·임시 폴더) — handlers.Dispatch가 넣음 (2b-2)
 
 
 class Handlers:
@@ -86,12 +105,43 @@ class Executor:
         self.mem: Dict[Tuple, dict] = {}
         self.touched: set = set()          # 이 세션이 맡았던 요청 (최종 상태 쓰기)
         self.notes: List[str] = []
+        self.kernel: Optional[str] = None  # Kaggle 작업자면 노트북 주소 — 마스터가 커널 종료를 확인 (2b-6)
+        self.busy: Optional[dict] = None   # 지금 처리기가 하는 일 — 생존 신호에 실어 보냄 (진행이 멈추면 심판이 '멈춘 것 같음')
+        self._busy_lock = threading.Lock()
+
+    # ---- 진행 (2b-1)
+    def _working(self, c: "Ctx", phase: str):
+        ex = self
+
+        class _W:
+            def __enter__(self_):
+                now = ex.clock()
+                with ex._busy_lock:
+                    ex.busy = {"lane": c.lane or "task", "rid": c.rid, "kind": c.kind, "task": c.task, "run": c.run,
+                               "phase": phase, "since": now, "progress_at": now, "note": ""}
+                return self_
+
+            def __exit__(self_, *a):
+                with ex._busy_lock:
+                    ex.busy = None
+                return False
+        return _W()
+
+    def _progress(self, note: str = ""):
+        with self._busy_lock:
+            if self.busy is not None:
+                self.busy = dict(self.busy, progress_at=self.clock(), note=str(note)[:120])
 
     # ---- 쓰기
     def heartbeat(self, stopping: bool = False):
-        self.store.write_json(access.worker_record_name(self.me, self.fp),
-                              {"session": self.me, "fp": self.fp, "caps": self.caps, "hb": self.clock(),
-                               "stopping": stopping}, owner=self.owner)
+        with self._busy_lock:
+            busy = dict(self.busy) if self.busy else None
+        rec = {"session": self.me, "fp": self.fp, "caps": self.caps, "hb": self.clock(), "stopping": stopping}
+        if self.kernel:
+            rec["kernel"] = self.kernel
+        if busy and not stopping:
+            rec["busy"] = busy
+        self.store.write_json(access.worker_record_name(self.me, self.fp), rec, owner=self.owner)
 
     def _ask(self, typ: str, res: str, **kw):
         self.seq += 1
@@ -107,7 +157,7 @@ class Executor:
     def _fresh(self, lock_path: str):
         files, unknown, _ = snapshot(self.store, [("grant", A.P_GRANT, False, None), ("state", lock_path, False, None)],
                                      None, self.clock)
-        return files, unknown
+        return files, _non_object_unknown(files, unknown)
 
     def _authority(self, check: Callable[[], Tuple[bool, str]], log: Optional[access.StepLog]) -> access.Authority:
         return access.Authority(check, clock=self.mono, sleep=self.sleep, step_log=log)
@@ -144,10 +194,11 @@ class Executor:
         """파일을 읽고 할 수 있는 일을 하나씩 진행. 'wait'(읽지 못함·자격 없음) | 'idle' | 'work'."""
         try:
             files, unknown, _ = snapshot(self.store, SPEC, None, self.clock)
+            unknown = _non_object_unknown(files, unknown)
         except StoreError:
             return "wait"
-        if "grant" in unknown or "state" in unknown:
-            return "wait"
+        if unknown:
+            return "wait"                   # 읽지 못한 것이 하나라도 있으면 이 차례는 일하지 않고 기다림 — 심판의 판정 보류와 같은 규칙 (b22 R1)
         g = files.get(A.P_GRANT)
         if not g or not self.accounts.get("G") or g.owner != self.accounts["G"]:
             return "wait"
@@ -209,10 +260,11 @@ class Executor:
             lk = self._lock(files, grant, t)
             if not lk or lk.get("session") != self.me or lk.get("decision") != c.decision or int(lk.get("epoch", -1)) != ep:
                 continue                                       # 아직 잠금이 안 왔거나 다시 발급을 기다림
-            m = self.mem.setdefault((c.assign, t), {"job": f"{self.me}-{t}-{c.chunk}"})
+            m = self.mem.setdefault((c.assign, t), {"job": f"{self.me}-{t}-{c.chunk}-{A.short_hash(c.assign)[:6]}"})
             ctx = Ctx(**{**c.__dict__, "task": t, "job": m["job"], "prepared": m.get("prepared")})
             ctx.step_log = m.setdefault("log", self._step_log(t, m["job"]))
             ctx.auth = lambda phase, ctx=ctx: self._task_auth(ctx, phase)
+            ctx.progress = self._progress
             st = lk.get("state")
             if st == "held":
                 if m.get("failed"):
@@ -228,19 +280,26 @@ class Executor:
                     continue
                 if "prepared_ok" not in m:
                     try:
-                        m["prepared"] = self.h.prepare(ctx)
+                        with self._working(ctx, "prepare"):
+                            m["prepared"] = self.h.prepare(ctx)
                         m["prepared_ok"] = True
                     except Exception as e:
                         m["failed"] = "failed:" + type(e).__name__
                     worked = True
                     continue
+                # 확정 신청은 TASK 하나씩 (11/17 결정, b24 E15): 같은 배정의 앞 TASK가 확정 중이면 끝날 때까지 기다림
+                # → 취소·정지 뒤에 쓰이는 것은 지금 확정 중인 TASK 하나뿐
+                if any(self._confirming(c, files, grant, o, done) for o in a.get("tasks", []) if str(o) != t):
+                    continue
+                m["asked"] = True
                 self._once(("confirm", t, lk["gen"], ep), lambda: self._ask(
                     "confirm", t, rid=c.rid, chunk=c.chunk, job=m["job"], epoch=ep, gen=lk["gen"],
                     decision=c.decision, task=t, recovery_dir=ctx.step_log.dir()))
             elif st == "confirm_approved" and lk.get("job") == m["job"]:
                 if "committed" not in m and "stopped" not in m:
                     try:
-                        m["committed"] = self.h.commit(ctx) or "done"
+                        with self._working(ctx, "commit"):
+                            m["committed"] = self.h.commit(ctx) or "done"
                     except access.AuthorityLost as e:
                         m["stopped"] = "lost"                  # 복원하지 않고 멈춤
                         self.notes.append(f"lost {t}: {e}")
@@ -260,6 +319,19 @@ class Executor:
                 "release", "assign", assign=c.assign, rid=c.rid, chunk=c.chunk, epoch=ep, decision=c.decision))
         return worked
 
+    def _confirming(self, c: Ctx, files, grant, t, done) -> bool:
+        """이 배정의 TASK t가 확정 신청했거나 확정 중이고 아직 결과가 없는가."""
+        t = str(t)
+        if t in done:
+            return False
+        m = self.mem.get((c.assign, t)) or {}
+        if "stopped" in m:
+            return False                                   # 멈춤 보고한 TASK는 심판이 '확인 필요'로 넘김 — 다음을 막지 않음
+        lk = self._lock(files, grant, t) or {}
+        if lk.get("session") != self.me or lk.get("decision") != c.decision:
+            return False
+        return lk.get("state") == "confirm_approved" or (lk.get("state") == "held" and bool(m.get("asked")))
+
     # ---- 받는 중 일 (백업·export)
     def _step_read(self, c: Ctx, files, grant, ep, unknown) -> bool:
         a, worked = c.assign_obj, False
@@ -267,17 +339,19 @@ class Executor:
         remaining = [str(x) for x in a.get("tasks", []) if str(x) not in done]
         canceled = bool(c.intake.get("cancel_signal"))
         for t in remaining:
-            m = self.mem.setdefault((c.assign, t), {"job": f"{self.me}-{t}-{c.chunk}"})
+            m = self.mem.setdefault((c.assign, t), {"job": f"{self.me}-{t}-{c.chunk}-{A.short_hash(c.assign)[:6]}"})
             ctx = Ctx(**{**c.__dict__, "task": t, "job": m["job"]})
             ctx.step_log = m.setdefault("log", self._step_log(t, m["job"]))
             ctx.auth = lambda phase, ctx=ctx: self._task_auth(ctx, "publish")
+            ctx.progress = self._progress
             lk = self._lock(files, grant, t)
             mine = bool(lk) and lk.get("session") == self.me and lk.get("decision") == c.decision \
                 and lk.get("publish") and lk.get("state") == "held" and int(lk.get("epoch", -1)) == ep
             if mine:
                 if "published" not in m:
                     try:
-                        m["published"] = self.h.publish(ctx) or "done"
+                        with self._working(ctx, "publish"):
+                            m["published"] = self.h.publish(ctx) or "done"
                     except Exception as e:
                         m["published"] = "failed:" + type(e).__name__
                     worked = True
@@ -289,7 +363,8 @@ class Executor:
                 continue
             if not m.get("ready"):
                 try:
-                    m["ready"] = bool(self.h.fetch(ctx))
+                    with self._working(ctx, "fetch"):
+                        m["ready"] = bool(self.h.fetch(ctx))
                 except Exception as e:
                     m["ready"], m["published"] = True, "failed:" + type(e).__name__
                 worked = True
@@ -327,11 +402,16 @@ class Executor:
             ctx = Ctx(**{**c.__dict__})
             ctx.step_log = self._step_log("run", c.run)
             ctx.auth = lambda phase, ctx=ctx: self._run_auth(ctx, lp)
+            ctx.progress = self._progress
             try:
-                m["out"] = dict(self.h.run(ctx) or {"report": "done_job", "result": "done"})
+                with self._working(ctx, "run"):
+                    m["out"] = dict(self.h.run(ctx) or {"report": "done_job", "result": "done"})
             except access.AuthorityLost as e:
                 m["out"] = {"report": "stop_run", "reason": "lost"}     # 게시하지 않고 멈춤 보고 → 심판이 '확인 필요'로 (Q2)
                 self.notes.append(f"lost run {c.run}: {e}")
+            except access.NeedsCheck as e:
+                m["out"] = {"report": "stop_run", "reason": e.reason}   # 결과를 확정할 수 없음 → '확인 필요' (b26 U2)
+                self.notes.append(f"needs_check run {c.run}: {e}")
             except Exception as e:
                 m["out"] = {"report": "done_job", "result": "failed:" + type(e).__name__}
             worked = True
@@ -378,7 +458,7 @@ class Executor:
                 continue
             res = self._results_for(files, rid)
             tasks = [str(t) for t in it.get("tasks") or []]
-            if tasks:
+            if tasks and it.get("kind") not in A.TASKLESS_KINDS:      # 숨김처럼 TASK를 적어도 실행 하나로 끝나는 일 (2b-4)
                 if any(t not in res for t in tasks):
                     if not it.get("cancel_signal"):
                         continue

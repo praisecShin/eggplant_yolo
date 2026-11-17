@@ -1,0 +1,9 @@
+{"case": "restart_thread_gap", "error": "AnalysisRefused('공유 폴더에 쓸 수 없습니다 (열기(쓰기): not_permitted:shared/during_restart) — 결과는 OUT(분석 폴더)에, 바꾸는 일은 request(...)로')"}
+{"case": "switch_person", "success": true}
+Traceback (most recent call last):
+  File "/mnt/c/Users/user/Project/eggplant_v4.33.0/rLog/b29_extra_probe.py", line 35, in <module>
+    emit('same_day_last_upload',selected=ns['last_upload'](1),expected='old.xml')
+                                         ~~~~~~~~~~~~~~~~~^^^
+  File "cell00", line 292, in last_upload
+  File "cell00", line 292, in <lambda>
+NameError: name '_when' is not defined

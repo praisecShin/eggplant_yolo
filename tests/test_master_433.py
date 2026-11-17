@@ -127,7 +127,7 @@ class TrackH(X.Handlers):
 w = World(); h = TrackH()
 w.executor("E1", ["gpu"], h)
 w.request("r1", "track", [1, 2, 3])
-w.tick(8)
+w.tick(12)                                         # 확정 신청은 TASK 하나씩 (b24 E15) — 회차가 조금 더 걸림
 check(w.results("r1") == [("1", "done"), ("2", "done"), ("3", "done")], "요청 → 배정 → 확정 승인 → 결과: 세 TASK 완료")
 check(w.req_status("r1") == "done", "마지막 묶음 뒤 실행기가 요청 이름을 '완료'로 바꿈")
 check([c[0] for c in h.calls if c[1] == "1"] == ["prepare", "commit"] and h.cvat.count(("import", "1")) == 1,
@@ -282,6 +282,41 @@ check(ran == ["c1"] and w.results("c1") == [("run", "done")], "worker_cpu: 등�
 check(w.results("c2") == [("run", "failed:NoHandler")], "처리기가 없는 종류는 '실패(처리기 없음)'로 보고 (거짓 완료 없음)")
 os.environ.pop(access.MODE_VAR, None)
 
+
+# b22 R1: 객체가 아닌 판정 파일 → 실행기는 죽지 않고 기다림, 고치면 정상 처리 (실제 Executor.step·worker_cpu.run)
+for bad_path in ("arb/assign/aaa_bad.json", "arb/results/bad.json", "LOCK"):
+    w = World(); h = TrackH()
+    e1 = w.executor("E1", ["gpu"], h)
+    w.request("r1", "track", [1])
+    w.tick(2)
+    bp = A.P_LOCK_TASK + "1.json" if bad_path == "LOCK" else bad_path
+    keep = (w.store.root / bp).read_text() if (w.store.root / bp).exists() else None
+    (w.store.root / bp).parent.mkdir(parents=True, exist_ok=True)
+    (w.store.root / bp).write_text("[1]")
+    try:
+        st = e1.step(); err = None
+    except Exception as ex_:
+        st, err = None, type(ex_).__name__
+    os.environ[access.MODE_VAR] = "exec"
+    try:
+        W.run(w.store, ACC, ["cpu"], session="CPUx", max_steps=1, clock=w.clk); err2 = None
+    except Exception as ex_:
+        err2 = type(ex_).__name__
+    os.environ.pop(access.MODE_VAR, None)
+    check(err is None and st == "wait" and err2 is None, f"객체가 아닌 판정 파일({bad_path})이 있어도 실행기는 죽지 않고 기다림 (R1)")
+    if keep is None:
+        (w.store.root / bp).unlink()
+    else:
+        (w.store.root / bp).write_text(keep)
+    w.tick(10)
+    check(w.results("r1") == [("1", "done")], f"파일을 고치면 정상 처리 ({bad_path}) (R1)")
+# 바깥 입력이 객체가 아니면 실행기는 멈추지 않음 (심판이 거절)
+w = World(); h = TrackH(); w.executor("E1", ["gpu"], h)
+(w.store.root / "requests").mkdir(parents=True, exist_ok=True)
+(w.store.root / "requests/REQ_junk__track__pending.json").write_text("[1]")
+w.request("r1", "track", [1]); w.tick(8)
+check(w.results("r1") == [("1", "done")], "객체가 아닌 요청 파일 옆의 정상 요청은 실행기가 처리 (R1)")
+
 # ======================================================== b11 회귀 (Q1·Q2·Q3·Q7)
 import time as _time
 # Q1: 처리기가 오래 걸려도 생존 신호는 따로 나감 → 살아 있는 실행기를 죽은 것으로 보지 않음
@@ -352,8 +387,8 @@ w.executor("E1", ["gpu"], h)
 w.store.write_json("requests/REQ_iso__track__pending.json", {"tasks": ["3"], "created": "2026-11-14T01:00:00.000Z"})
 w.request("r1", "track", [1])
 r = w.tick(8)
-check("file:workers/bad.json" in r.unknown and not [n for n in r.notes if n.startswith("decide_error")],
-      "객체가 아닌 JSON 파일은 그 파일만 '모름' — 루프는 계속 돎 (Q7)")
+check("file:workers/bad.json" not in r.unknown and not [n for n in r.notes if n.startswith("decide_error")],
+      "객체가 아닌 JSON 바깥 파일은 '모름'(판정 보류)이 아니라 형태 검사로 거절 — 루프는 계속 돎 (Q7 → 0o)")
 check(w.results("r1") == [("1", "done")] and w.results("iso") == [("3", "done")],
       "다른 요청은 정상 처리, 만든 시각이 ISO 문자열인 요청(앱 형식)도 처리")
 boom = M.MasterLoop(w.store, "MS1", "fpm", lambda: {"accounts": ACC, "people": PEOPLE}, clock=w.clk)
@@ -528,6 +563,37 @@ try:
 except IO.StoreError:
     check(True, "rclone 목록의 형태가 다르면 목록 실패로 처리 ('모름')")
 check(abs(IO._iso("2026-11-14T04:06:49.123456789Z") - IO._iso("2026-11-14T13:06:49.123456+09:00")) < 1e-3, "시각 해석 (나노초·시간대)")
+
+
+# b19 Z4: 같은 폴더의 같은 이름 파일 둘 → 그 파일은 '모름' + 알림, 요청은 처리하지 않음
+class DupStore:
+    def __init__(self):
+        self.objs = {"jobs/ARBITER_GRANT.json": {"epoch": 1, "session": "MS1"},
+                     "requests/REQ_d1__track__pending.json": {"tasks": ["5"], "created": 1},
+                     "requests/REQ_ok__track__pending.json": {"tasks": ["6"], "created": 1}}
+    def list(self, prefix, recursive, include=None):
+        out = [IO.Entry(p, "g@x" if "GRANT" in p else "a0@x", 1.0, 2.0, 10) for p in self.objs
+               if (p == prefix) or (p.startswith(prefix) and prefix.endswith("/") and (recursive or "/" not in p[len(prefix):]))]
+        if prefix == "requests/":
+            out.append(IO.Entry("requests/REQ_d1__track__pending.json", "a0@x", 1.0, 3.0, 11))   # 같은 이름 두 번째 파일
+        return out
+    def read_json(self, path):
+        return self.objs[path]
+fd, ud, _ = IO.snapshot(DupStore())
+check("file:requests/REQ_d1__track__pending.json" in ud and "dup:requests/REQ_d1__track__pending.json" in ud
+      and "requests/REQ_d1__track__pending.json" not in fd and "requests/REQ_ok__track__pending.json" in fd,
+      "같은 폴더에 같은 이름 파일이 둘이면 그 파일만 '모름'으로 두고 표시 — 다른 파일은 그대로 (Z4)")
+check(not any(u.startswith("dup:") for u in IO.snapshot(DupStore(), [("requests", "requests/", False, None), ("requests", "requests/", False, None)])[1]
+              if "REQ_ok" in u), "같은 경로가 다른 목록에서 또 나오는 것은 중복으로 보지 않음")
+cfgd = A.Cfg(me="MS1", accounts={"A0": "a0@x", "G": "g@x"},
+             people=[{"id": "M1", "account": "a0@x", "role": "admin", "perms": ["request", "wake", "release"], "status": "active"}])
+fd["workers/E1__fp.json"] = A.FileRec({"session": "E1", "caps": ["gpu"], "fp": "fp", "hb": 100.0}, "a0@x", 100.0, 100.0)
+fd["workers/MS1__fp.json"] = A.FileRec({"session": "MS1", "caps": ["master"], "fp": "fp", "hb": 100.0}, "a0@x", 100.0, 100.0)
+rd = A.decide_round(cfgd, A.Inputs(now=100.0, files=fd, list_started_at=99.0, unknown=ud))
+paths = [w.path for w in rd.writes]
+check(not any("d1" in p_ for p_ in paths if p_.startswith(A.P_INTAKE) or p_.startswith(A.P_ASSIGN))
+      and any(isinstance(w.obj, dict) and w.obj.get("kind") == "duplicate_path" for w in rd.writes),
+      "심판: 같은 이름 파일이 여럿인 요청은 접수·배정하지 않고 'duplicate_path' 알림 (Z4)")
 
 shutil.rmtree(TMP, ignore_errors=True)
 print("RESULT", ok)

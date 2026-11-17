@@ -1,4 +1,4 @@
-# v4.33 구현 2d·2e(CTRL앱) — 수집기 나누기와 CTRL앱 (v4.33.0j, 0k에서 b17·0l에서 b18 반영)
+# v4.33 구현 2d·2e(CTRL앱) — 수집기 나누기와 CTRL앱 (v4.33.0j, 0k에서 b17·0l에서 b18·0m에서 b19·0n에서 b20·0o에서 b21·0p에서 b22 반영)
 
 배포 계획 5절의 2d와 2e 중 CTRL앱입니다. 0j(b16 반영·보호 모드)도 같은 판에 들어 있습니다 (`IMPL_STEP2A_v4.33.md`의 'b16 반영').
 
@@ -85,3 +85,62 @@ Google Drive 커넥터(`search_files`·`download_file_content`·`create_file`)�
 남은 한계(검토에서 지적, 이번에 고치지 않음):
 - Keeper가 메일·푸시를 보낸 직후 `keeper.json` 저장 전에 멈추면 같은 알림이 한 번 더 갈 수 있습니다. 전송과 기록을 한꺼번에 묶을 방법은 없습니다.
 - 수집기는 요청 파일을 만드는 호출의 응답이 끊기면(파일은 생김) 파일 ID를 모릅니다. 이때는 검색과 10분 기다림에 기대고, 그래도 생긴 중복은 심판이 하나로 접수합니다.
+
+## b19 반영 (0m)
+
+`docs/REVIEW_RESULT_v4.33.0l_b19.md`의 Z1~Z5와 보충(중요 알림 누적)을 고쳤습니다. Z1·Z4는 11/16 결정(권장안)대로입니다.
+
+| 번호 | 고친 곳 | 고친 내용 | 시험 |
+| --- | --- | --- | --- |
+| Z1 | `arbiter.py` `process_signals`, `IDENTITY_UNKNOWN` | 계획을 이어 할 때 지금 신원을 세 경우로: 모름(`owner_unknown`·`origin_owner_unknown`) → 미룸, 철회 → 아직 적용하지 않은 효과는 `invalid:revoked:<이유>`, 허용 → 진행 | `test_arbiter_433` 4개 (소유 계정 모름 → 미룸 → 다시 읽히면 마침, G 해제 뒤 원래 관리자 권한 철회 → 거절, 원래 신호 소유 모름 → 미룸) |
+| Z2 | `Collector.gs` `pendingProblem_`·`isDate_`, `collect_` | 사건·묶음의 `at`, 묶음의 `attempt_at`이 실제 날짜인지 검사. 보낼 목록 검사는 바뀐 것이 없는 회차에도 매번 (틀리면 수집 실패) | `test_collector` 2개 |
+| Z3 | `Collector.gs` `flushAutoRequests_` | 장부의 TASK별 기록은 더 최신(`updated`)일 때만 바꿈. 늦은 발행은 `history`(최근 10개)에만 | `test_collector` 3개 (옛 묶음 대기 → 새 묶음 발행 → 옛 묶음 늦은 발행) |
+| Z4 | `arb_io.py` `snapshot`, `arbiter.py` `View` | 한 목록 안에서 같은 경로가 둘 이상이면 그 파일을 `file:`·`dup:` 모름으로 두고 읽지 않음. 심판은 `duplicate_path` 알림 | `test_master_433` 3개 |
+| Z5 | `Collector.gs` `writeHeartbeat_`, `Keeper.gs` `kpCollectorAt_` | 수집기가 `fail_since`(연속 실패 시작) 기록. Keeper 기준: `last_ok` → `fail_since` → 옛 형식의 `time` | `test_collector` 2개, `test_keeper` 3개 (실제 산출물 연결 포함) |
+| 보충 | `Keeper.gs` `kpSendOutbox_` | 같은 무리(`group`)의 중요 알림은 지금 상태 하나만 남기고 바뀐 횟수를 본문에 | `test_keeper` 2개 |
+
+판 번호: 심판·수집기·Keeper `4.33.0m`.
+
+남은 한계(추가):
+- Z4로 같은 이름 파일이 생기면 관리자가 지울 때까지 그 요청·기록은 처리되지 않습니다. 실행기의 완료 쓰기(rclone `moveto`·`rcat`)가 같은 이름 파일에서 어떻게 동작하는지는 예행 연습 T17에서 확인합니다.
+
+## b20 반영 (0n)
+
+`docs/REVIEW_RESULT_v4.33.0m_b20.md`의 Q1~Q4를 고쳤습니다. 2b 전 필수인 Q1·Q2와, 2b 안에서 해도 되는 Q3·Q4를 함께 고쳤습니다.
+
+| 번호 | 고친 곳 | 고친 내용 | 시험 |
+| --- | --- | --- | --- |
+| Q1 | `arbiter.py` `View.put`·`holds_unknown`·`schedule`·`wake_info`·`process_signals`·`decide_round` | 읽지 못한 경로에는 쓰지 않음(알림 `write_blocked_unknown`). 효과 쓰기가 막히면 완료로 적지 않음. 정지 보류를 하나라도 모르면 새 배정·GPU 없음(`wake.holds`에 `(모름)`, `holds_unknown`). 계획·완료 기록을 모르면 신호를 미룸. 인계 기록을 모르면 인계를 되풀이하지 않음 | `test_arbiter_433` 7개 (보류·계획·완료·효과 경로·인계 기록이 같은 이름 둘). `test_fuzz_433`: 판정·신호·요청 파일을 무작위로 '모름'으로 숨겨 그 경로에 쓰지 않음, 보류를 모르면 새 배정 없음 (약 1,800회) |
+| Q2 | `arbiter.py` `_signal_requester`·`IDENTITY_UNKNOWN`·`process_signals` | G 해제의 원래 신호 경로가 모름이면 `origin_read_unknown`(미룸). 새 신호를 처음 계획할 때도 신원 모름이면 거절하지 않고 미룸. 정말 없으면 `origin_missing`(거절) | `test_arbiter_433` 7개 (읽기 실패·같은 이름 둘 → 미룸 → 회복 후 해제, 처음 계획, 정말 없음) |
+| Q3 | `Collector.gs` `tms_`·`latestPerTask_`·장부 비교·`queueHits_` | 시각을 숫자(ms)로 비교 | `test_collector` 2개 |
+| Q4 | `Collector.gs` 원본 있음 기록·장부 비교 | 건너뜀 기록도 더 최신일 때만 바꾸고 나머지는 `history`에 | `test_collector` 2개 |
+
+판 번호: 심판·수집기 `4.33.0n` (Keeper·CTRL앱은 0m·0l 그대로).
+
+## b21 반영 (0o) — 판정 보류
+
+`docs/REVIEW_RESULT_v4.33.0n_b21.md`의 P1~P4는 모두 같은 뿌리입니다. 판정 파일을 '모름'으로 받은 회차에도 심판이 나머지 판단을 하다가, 모름과 없음을 섞는 지점이 생기는 것입니다. 11/16 결정(A)에 따라 하나씩 막지 않고 **회차 단위 판정 보류**로 바꿨습니다.
+
+| 고친 곳 | 내용 | 시험 |
+| --- | --- | --- |
+| `arbiter.py` `decide_round` | 입력의 `unknown`에 `config` 말고 하나라도 있으면 판정 보류: `ARBITER.json`(`hold_on`·`hold_on_since`, `wake`는 할 일 0·GPU 0·`holds`에 `(모름)`)과 알림만 씀. 30분 넘으면 `hold_on_long` 알림(구간마다 한 번) | `test_arbiter_433` b21 회귀 11개 (P1 배정·복구 요청, P2 반환 보고, P3 해제 대상, P4 30분 알림·구간 끝·새 구간). 이전 회귀(N1·N3·P3·Q1) 6곳을 새 규칙에 맞게 고침: 모름 회차엔 아무것도 하지 않고, 다 읽히면 이어서 함 |
+| `arb_io.py` `snapshot` | 객체가 아닌 JSON은 '모름'이 아니라 그대로 넘김(심판의 형태 검사·보호 모드로) | `test_master_433` Q7 고침 |
+| `executor.py` `_non_object_unknown`, `arbiter.py` `executor_may_follow` | 실행기 쪽은 객체가 아닌 파일을 '모름'(기다림)으로. 권한 확인은 형태가 틀린 자격·잠금 파일에 `grant_bad`·`lock_bad` | 기존 시험 |
+| `Keeper.gs` | `hold_on_long` → 메일 + 푸시, `duplicate_path` → 메일(알아보기 쉬운 제목) | `test_keeper` 2개 |
+| `apps/ctrl/index.html` | 위쪽 '판정 보류' 띠(읽지 못한 것, 같은 이름 파일 안내), 판정 루프 칸에 '판정 보류' | `test_ctrl_app` 2개 |
+| `test_fuzz_433.py` | 파일 숨기기 불변 조건: 모르는 것이 있으면 그 회차는 회차 기록·알림만 씀 | 약 1,800회 |
+
+판 번호: 심판 `4.33.0o`, Keeper `4.33.0o` (수집기 0n 그대로).
+
+바뀌는 동작(대가): 잠깐의 읽기 실패에도 그 회차(25초)는 판정이 미뤄집니다. 같은 이름 파일이 생기면 관리자가 정리할 때까지 시스템 전체가 새 판정을 멈춥니다(30분 넘으면 메일·푸시).
+
+## b22 반영 (0p)
+
+`docs/REVIEW_RESULT_v4.33.0o_b22.md`의 R1(높음)·R2(보통)를 고쳤습니다. 11/16 결정에 따라 0p는 따로 검토받지 않고, R1·R2 확인을 2b 첫 검토에 함께 넣습니다.
+
+| 번호 | 고친 곳 | 고친 내용 | 시험 |
+| --- | --- | --- | --- |
+| R1 | `executor.py` `_non_object_unknown`·`step` | 읽지 못한 것이 하나라도 있으면 그 차례는 기다림. 객체가 아닌 판정·자격 파일은 '모름'으로 하고 읽는 목록에서 뺌. 객체가 아닌 바깥 입력은 그냥 뺌 | `test_master_433` 7개 (깨진 배정·결과·자기 TASK 잠금 → 실제 `Executor.step`·`worker_cpu.run`이 죽지 않고 기다림 → 고치면 정상 처리, 깨진 요청 옆의 정상 요청 처리) |
+| R2 | `arb_master.py` `last_arbiter_fresh`, `master_main.py` | 이번 회차에 회차 기록을 썼을 때만 그 요약으로 GPU 기동 | `test_master_main_433` 1개 (`arb/` 목록 실패 회차에 지난 'GPU 필요' 요약으로 켜지 않음) |
+
+판 번호: 심판·마스터 본체 `4.33.0p` (수집기 0n, Keeper 0o, CTRL앱 0o 그대로).

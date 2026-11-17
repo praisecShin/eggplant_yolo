@@ -17,43 +17,10 @@ from typing import Callable, Dict, List, Optional
 
 import access
 import executor as X
-from arb_io import Beat, LocalStore, RcloneStore
+from arb_io import LocalStore, RcloneStore
 
-# kind → {'prepare','commit','fetch','publish','run'} 중 필요한 함수
-HANDLERS: Dict[str, Dict[str, Callable]] = {}
-
-
-def register(kind: str, **fns: Callable):
-    HANDLERS.setdefault(kind, {}).update(fns)
-
-
-class NoHandler(RuntimeError):
-    pass
-
-
-class Dispatch(X.Handlers):
-    """요청 종류에 따라 등록된 처리기를 부름."""
-
-    def _fn(self, ctx: X.Ctx, name: str) -> Callable:
-        fn = (HANDLERS.get(ctx.kind) or {}).get(name)
-        if fn is None:
-            raise NoHandler(f"{ctx.kind}.{name}")
-        return fn
-
-    def prepare(self, ctx):
-        return self._fn(ctx, "prepare")(ctx)
-
-    def commit(self, ctx):
-        return self._fn(ctx, "commit")(ctx)
-
-    def fetch(self, ctx):
-        return self._fn(ctx, "fetch")(ctx)
-
-    def publish(self, ctx):
-        return self._fn(ctx, "publish")(ctx)
-
-    def run(self, ctx):
-        return self._fn(ctx, "run")(ctx)
+# 처리기 등록부는 handlers.py (CPU 작업 프로세스·GPU 작업자·Colab 30번 셀이 함께 씀, 2b-1). 옛 이름도 그대로 둠
+from handlers import REGISTRY as HANDLERS, Dispatch, NoHandler, register   # noqa: E402,F401
 
 
 def make_store(base: str):
@@ -67,28 +34,20 @@ def load_accounts(path: str) -> Dict[str, str]:
 
 def run(store, accounts: Dict[str, str], caps: List[str], session: Optional[str] = None, interval: float = 20,
         hb_every: float = 60, max_steps: Optional[int] = None, stop: Callable[[], bool] = lambda: False,
-        sleep=time.sleep, clock=time.time, join_timeout: float = 90) -> X.Executor:
-    access_env = access.mode()
-    if access_env != "exec":
+        sleep=time.sleep, clock=time.time, join_timeout: float = 90, env=None, test: bool = False,
+        exec_cfg: Optional[dict] = None, work: Optional[str] = None) -> X.Executor:
+    """env를 주지 않으면 exec_host.build_env로 꾸밈 (2b-6: 시험 범위·데이터셋 만들기 엔진)."""
+    import exec_host as EH
+    if access.mode() != "exec":
         raise access.AccessError("작업 프로세스는 EGG_ACCESS=exec에서만 돕니다")
     fp = access.machine_fingerprint()
-    ex = X.Executor(store, session or access.new_session_id("cpu", fp), fp, caps, accounts, Dispatch(), clock=clock)
-    # 생존 신호는 일하는 줄과 따로 — 긴 처리 중에도 보냄 (Q1). '끝남'도 같은 스레드가 마지막에 씀 (R7)
-    beat = Beat(ex.heartbeat, hb_every, final=lambda: ex.heartbeat(stopping=True))
-    beat.start()
-    n = 0
-    try:
-        while not stop() and (max_steps is None or n < max_steps):
-            ex.step()
-            n += 1
-            if max_steps is None or n < max_steps:
-                sleep(interval)
-    finally:
-        beat.stop()
-        beat.join(timeout=join_timeout)               # 저장소 쓰기 한도보다 길게 기다림
-        if beat.is_alive():
-            ex.notes.append("beat_join_timeout")    # 다른 줄에서 쓰지 않음 — 생존 신호가 3분 뒤 끊겨 정리됨
-    return ex
+    session = session or access.new_session_id("cpu", fp)
+    if env is None:
+        cfg = EH.HostConfig(test=test, caps=list(caps), exec_cfg=dict(EH.DEFAULT_EXEC, **(exec_cfg or {})),
+                            scripts_dir=str(Path(__file__).resolve().parent), work=work)
+        env = EH.build_env(cfg, store)
+    return EH.run_loop(store, accounts, caps, env, session, fp, interval=interval, hb_every=hb_every, stop=stop,
+                       max_steps=max_steps, sleep=sleep, clock=clock, join_timeout=join_timeout)
 
 
 def main(argv=None) -> int:
@@ -99,10 +58,15 @@ def main(argv=None) -> int:
     ap.add_argument("--session", default=None)
     ap.add_argument("--once", action="store_true")
     ap.add_argument("--stop-file", default=None, help="이 파일이 생기면 지금 단계를 마치고 끝남 (마스터가 만듦)")
+    ap.add_argument("--test", action="store_true", help="시험 실행 — 시험 프로젝트의 REH_ TASK에만 씀")
+    ap.add_argument("--exec-config", default=None, help="관리자 폴더 config/exec.json의 사본 (비밀 아님)")
     a = ap.parse_args(argv)
+    import handlers as H
+    H.load_all()                                       # 처리기 모듈 등록 (시험은 run()에 직접 등록)
     stop = (lambda: Path(a.stop_file).exists()) if a.stop_file else (lambda: False)
     run(make_store(a.base), load_accounts(a.accounts), [c for c in a.caps.split(",") if c], a.session,
-        max_steps=1 if a.once else None, stop=stop)
+        max_steps=1 if a.once else None, stop=stop, test=a.test,
+        exec_cfg=load_accounts(a.exec_config) if a.exec_config else None)
     return 0
 
 

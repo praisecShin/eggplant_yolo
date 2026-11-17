@@ -4,45 +4,85 @@
 
 표시: [ ] 할 일 · 각 항목 끝의 (시험)은 그 항목을 확인할 시험입니다.
 
+## 2b 작업 계획 (11/16 시작)
+
+v4.32의 실제 일을 v4.33 실행기의 처리기(`Handlers`)로 옮깁니다. 원칙은 다음과 같습니다.
+
+- **새 CVAT 동작을 만들지 않음:** 지금 쓰는 함수(`cvat_task_tools`·`cvat_backup`·`relabel_bridge`)를 감싸기만 합니다.
+- **CVAT 쓰기와 게시는 권한 확인을 거침:** 모두 `ctx.auth(단계)`를 지난 뒤에만 합니다.
+- **시험은 가짜 CVAT로:** 실제 서비스에는 접속하지 않습니다.
+
+옮길 원본(v4.32):
+- Colab 30번 셀(1,383줄)의 처리 함수: `_rl_track_one`·`_rl_shape_one`·`_rl_upload_one`·`_rl_backup`·`_rl_bk_poll`·`_lc_do`
+- CPU 마스터 `kaggle_cpu_master.py`: `run_cpu_export`·`run_cpu_backup_and_export`·`poll_waiting_backups`·`aggregate_and_sync_state`·`handle_aa`
+- 6·10·15·16·17·23·27·29·33번 셀
+
+| 단계 | 내용 | 원본 | 크기 |
+| --- | --- | --- | --- |
+| 2b-1 기반 ✅ (0q) | ① 가짜 CVAT(`tests/fake_cvat.py`): TASK·라벨·백업/export 준비 작업·가져오기 작업 번호·시간 초과·느린 응답<br>② 종류 → 처리기 등록, 필요한 능력(caps)<br>③ **필수:** 처리기 진행 시각(`ctx.progress`)과 종류별 시간 한도, 넘으면 멈춤 보고 → '확인 필요'<br>④ **필수:** 산출물 목록(`_files.json`) 최종 검증(해시·크기)<br>⑤ 옛 요청 종류 이름 대응(`aa`→`auto`, `discard` 등) | `executor.py`, `worker_cpu.py` | 중 |
+| 2b-2 받는 중 일 ✅ (0r) | backup·export: `fetch`(준비 요청·상태)와 `publish`(받기·게시) 나누기. 요청·TASK별 받는 중 기록(J1), 백업 판정 공용, 백업할 때의 CVAT 라벨 버전 기록 | `run_cpu_export`·`run_cpu_backup_and_export`·`poll_waiting_backups`·`backup_verdict`·`_rl_backup`·`_rl_bk_poll`, 13·14번 | 중 |
+| 2b-3 TASK 쓰기 ✅ (0s, b23 반영 0t) | track·shape·auto·제출본 올리기:<br>· `prepare`(받기·추론·결과, 로컬에서 끝까지) → 확정 신청<br>· `commit`: 업로드 전 백업 확인 → 사람 라벨 보호(`ALLOW_REPLACE`) → 복구 자료 게시 → 가져오기(작업 번호) → 결과 확인 → 이름은 `_uld`→`_uld_AA`만<br>· 제출본은 받은 바이트 그대로(C절) | `_rl_track_one`·`_rl_shape_one`·`_rl_upload_one`·`_rl_track_resume`·`_lc_do`, 5·6·9·10·27번 | 대 |
+| 2b-4 취합 일 ✅ (0u) | hide·unhide·refresh: `tracked.json` 최신 받기, 게시 파일에 epoch·회차, 요청 최종 상태는 취합 일이 씀(E절·H7) | `aggregate_and_sync_state`, `relabel_bridge.update_tracked` | 중 |
+| 2b-5 관리 일·학습·만들기 ✅ (5a 0v: dataset·test_tasks33·force_new·cleanup29·cleanup34 / 5b 0w: restore23·train·create16·create17·복구 일) | dataset·force_new·restore23·cleanup29·cleanup34·test_tasks33·train·create16·create17. 산출물은 버전 경로에 쓰고 채택은 심판, 정리는 지우지 않고 표시만(D절) | 1·15·16·17·23·29·33번, A0 Kaggle 학습 노트북 | 대 |
+| 2b-6 실행 호스트 ✅ (0x) | GPU 작업자 노트북(K·A0 Kaggle)과 Colab 30번 셀을 `Executor`로(Colab은 `colab_oauth` 능력). **시험 범위 강제:** 시험 실행(`_test`)은 `eggplant_AA` 프로젝트의 `REH_` TASK에만 CVAT 쓰기 — `ctx.auth`에서 막음 | K Kaggle GPU 노트북, 30번 셀, `master_boot` | 중 |
+| 2b-7 연결 시험 ✅ (0y) | Codex 요청 목록을 가짜 CVAT로 끝에서 끝까지:<br>· 백업 선행<br>· 사람 라벨 보호<br>· 한 요청은 한 실행기만<br>· 정지·확정 경계<br>· 권한이 바뀐 뒤 복원하지 않음<br>· LC·AA·자동 요청의 params가 처리기까지 전달 | `tests/test_handlers_433.py`(새로) | 중 |
+
+검토 시점:
+- **b23:** 2b-3 뒤. 0p의 R1·R2 확인도 여기 함께 넣습니다. → 결과 S1~S7, 0t에서 반영.
+- **b24:** 2b-7 뒤. 0t의 S 반영 확인을 함께 넣습니다. → 결과 T1~T7, 0z에서 반영 (T4 학습 별도 프로세스·자기 폴더에만 쓰기, E15 확정 신청 TASK 하나씩 — 11/17 결정).
+- **b25:** 요청서 없이 0z 사전 검토 → F1·F2, 0z1에서 반영.
+- **b26:** 0z1의 F1·F2 반영 확인 (좁은 범위, 2c 전).
+- **b26 결과:** U1~U5, 0z2에서 반영 (U1 하위 프로세스 끝까지 추적 — 11/17 결정).
+- **b27:** (사용자 질문 착오로) 0z2 사전 검토 → F1, 0z3에서 반영 (학습 감독 프로세스).
+- **b28:** 2c-1 뒤 (0z4). 0z2 U1~U5와 0z3 F1 반영 확인을 함께 넣습니다. 요청서 `docs/REVIEW_REQUEST_v4.33.0z4.md`.
+- **b28 결과:** V1~V5, 0z6에서 반영 (D10 취소는 지금대로, D11은 `last_adopted` — 11/17 결정).
+- **b29:** 0z6 (V1~V5 반영 확인 + 2c-2 읽기 셀). 요청서 `docs/REVIEW_REQUEST_v4.33.0z6.md`.
+- **b29 결과:** W1~W5, 0z7에서 반영.
+- **b30:** 2c-6 뒤 노트북 전체 (계획서의 옛 b29).
+- **b31:** 0z7 (b29 W1~W5 반영 확인). 요청서 `docs/REVIEW_REQUEST_v4.33.0z7.md`.
+- **b31 결과:** X1~X4, 0z8에서 반영. 반영 확인은 **b30에 합침** (따로 검토하지 않음 — 11/17 결정).
+
+2b가 끝나면 2c(사람용 셀)로 넘어갑니다.
+
 ## A. 실행 컨텍스트와 모드 (G5)
 
-- [ ] 모드 변수 이름을 `EGG_ACCESS`로 새로 둠. 12번 셀의 `RUN_MODE='cli'`와 섞이지 않게. 값은 `analysis`·`exec` 둘만, 모르는 값은 쓰기 거절 (시험: 12번 실행 뒤에도 analysis 유지)
+- [x] (2c-1) 모드 변수 이름을 `EGG_ACCESS`로 새로 둠. 12번 셀의 `RUN_MODE='cli'`와 섞이지 않게. 값은 `analysis`·`exec` 둘만, 모르는 값은 쓰기 거절 (시험: 12번 실행 뒤에도 analysis 유지)
 - [ ] 실행 권한은 `ExecContext(요청ID, 세션S, decisionID, 허용 자원)` 객체로 넘기고 finally에서 거둠. 30번 셀이 다른 셀 코드를 실행할 때도 이 객체만 씀 (시험: 30번 중단 뒤 다른 셀에서 쓰기 거절)
 - [ ] CVAT 접속 factory 하나: `ctt.connect`, 0번 `cvat_client`·`use_cvat`(765~773, 808~845), `_CVAT_SESSIONS` 캐시. 분석 caller에게 raw client·캐시를 넘기지 않음
-- [ ] 허용 동작 목록 (분석): 읽기, 참조용 export 준비·상태·받기(`ctt.request_export` 366·`ctt._export` 313~338). 메서드 이름 추측으로 막지 않음
-- [ ] 막을 동작 (분석, 컨텍스트 없을 때): `ctt.import_tracks`(427~432), `ctt.replace_annotations`(441~460, 최초 remove와 복원 모두), `ctt.auto_annotate_frames`(1583~1589 update_annotations), 0번 `label_uploaded`(1298 task.update), 16번(75~82 create_from_backup·update), 17번(85 create_from_data), 27번(151~164) (시험: 각각 분석 모드에서 거절)
+- [x] (2c-1, 전송 경계의 방식·경로 허용 목록) 허용 동작 목록 (분석): 읽기, 참조용 export 준비·상태·받기(`ctt.request_export` 366·`ctt._export` 313~338). 메서드 이름 추측으로 막지 않음
+- [x] (2c-1 전송 가드 + 2c-3 셀은 요청만 — 27번은 2c-4) 막을 동작 (분석, 컨텍스트 없을 때): `ctt.import_tracks`(427~432), `ctt.replace_annotations`(441~460, 최초 remove와 복원 모두), `ctt.auto_annotate_frames`(1583~1589 update_annotations), 0번 `label_uploaded`(1298 task.update), 16번(75~82 create_from_backup·update), 17번(85 create_from_data), 27번(151~164) (시험: 각각 분석 모드에서 거절)
 - [ ] `cvat_backup.new_session/login/logout`(214~271)·`request_backup`(292~302): factory 경유 또는 분석에서 호출하지 않게 분기. 13번은 분석에서 상태 보기만
 - [ ] 12번 CLI/module: 분석 허용 스크립트 목록과 출력 인자를 넘김
-- [ ] 보안 비밀을 명령행·요청·작업 파일에 넣지 않음 (기존 0600 임시 파일 약속 유지)
+- [x] (2c-1) 보안 비밀을 명령행·요청·작업 파일에 넣지 않음 (기존 0600 임시 파일 약속 유지)
 
 ## B. 파일 쓰기 (G6)
 
-- [ ] 공유 입력 BASE(읽기)와 분석 출력 OUTPUT_ROOT 분리. BASE를 통째로 바꾸지 않음 (모델·기록 입력을 찾아야 하므로)
-- [ ] 저장 도우미: 모든 저장이 출력 위치·컨텍스트를 받고, 돌려준 경로가 허가 범위인지 확인
-- [ ] 좁은 예외 API: 요청 만들기, 확인 결과 신호, 자기 `workers/` 생존 신호, 제출본
-- [ ] 0번 613~622 `logs/versions.csv` 직접 append → 세션 로그로 (시작만 해도 쓰는 곳)
-- [ ] 0번 133~145·320~338 `drive_push`·백그라운드 push·변경 전부 업로드·삭제 → 분석은 OUTPUT_ROOT만, 실행기는 승인 범위 목록만, 원격 삭제 없음
-- [ ] 0번 `task_dir/upload_log/change_report/job_start` → 분석 출력과 실행 기록을 컨텍스트로 구분
-- [ ] 4번 23~26·67 `compute_stats`의 label_stats 캐시·reports CSV → 저장 안 하는 조회 또는 분석 폴더
-- [ ] 5·7·11번 XML·기준/검수 export·subprocess 로그·진단 png → 부모가 정한 출력 경로를 하위 스크립트에 넘김
-- [ ] 14번 96·162 export 재사용 copy·pending CSV·manifest → 분석은 상태 보기만
-- [ ] 21번 97·110, 24번 208~209·261, 26번 95 HTML·CSV 직접 쓰기 → OUTPUT_ROOT
+- [x] (2c-1) 공유 입력 BASE(읽기)와 분석 출력 OUTPUT_ROOT 분리. BASE를 통째로 바꾸지 않음 (모델·기록 입력을 찾아야 하므로)
+- [x] (2c-1, 쓰기 가드) 저장 도우미: 모든 저장이 출력 위치·컨텍스트를 받고, 돌려준 경로가 허가 범위인지 확인
+- [x] (2c-1, 생존 신호는 workers/ 대신 분석 폴더) 좁은 예외 API: 요청 만들기, 확인 결과 신호, 자기 `workers/` 생존 신호, 제출본
+- [x] (2c-1) 0번 613~622 `logs/versions.csv` 직접 append → 세션 로그로 (시작만 해도 쓰는 곳)
+- [x] (2c-1, Colab 전용으로 없앰) 0번 133~145·320~338 `drive_push`·백그라운드 push·변경 전부 업로드·삭제 → 분석은 OUTPUT_ROOT만, 실행기는 승인 범위 목록만, 원격 삭제 없음
+- [x] (2c-2, 분석 셀의 기록은 분석 폴더 records/로) 0번 `task_dir/upload_log/change_report/job_start` → 분석 출력과 실행 기록을 컨텍스트로 구분
+- [x] (2c-2) 4번 23~26·67 `compute_stats`의 label_stats 캐시·reports CSV → 저장 안 하는 조회 또는 분석 폴더
+- [ ] 5·7·11번 XML·기준/검수 export·subprocess 로그·진단 png → 부모가 정한 출력 경로를 하위 스크립트에 넘김 — 7·11·20번은 2c-2에서 [x] (분석 폴더 task_dir), 5번은 2c-4
+- [x] (2c-3) 14번 96·162 export 재사용 copy·pending CSV·manifest → 분석은 상태 보기만
+- [x] (2c-2) 21번 97·110, 24번 208~209·261, 26번 95 HTML·CSV 직접 쓰기 → OUTPUT_ROOT
 - [ ] 23번 9·32~33 reports/revisions CSV·복원 목적지, `drive_revisions.pin`(206~219) → 분석에서 `RV_PIN` 끔, pin·restore는 관리 일 (시험: 분석 23번 실행 시 revisions.update 0회)
-- [ ] 27·32·33번 json.dump·to_csv·TASK history·sim CSV → 분석 폴더. `rb.add_history`·`write_test_tasks`를 분석에서 부르지 않음
-- [ ] 28번 snapshots refresh·stats/corrections/state 저장·settle → 분석은 읽기만, 새로 고침은 요청
+- [ ] 27·32·33번 json.dump·to_csv·TASK history·sim CSV → 분석 폴더. `rb.add_history`·`write_test_tasks`를 분석에서 부르지 않음 — 32번은 2c-2에서 [x], 27·33번은 2c-3·2c-4
+- [x] (2c-3) 28번 snapshots refresh·stats/corrections/state 저장·settle → 분석은 읽기만, 새로 고침은 요청
 - [ ] scripts 전반 `Path.write_text`·csv writer·이미지 save·`shutil`·`os.replace` → 저장 도우미로 (시험: 분석 모드로 전 셀 실행 뒤 BASE 변경 0건)
 
 ## C. '이 결과 올리기' (G7)
 
-- [ ] `submissions/<M>/<제출ID>/` 고정 사본과 제출 정보(해시·크기·형식·TASK ID·서버·프레임 범위·프레임맵·라벨 이름·모델·설정·교체/덧붙임 동의)
-- [ ] 5번 track_settings, 9·10번 자동 라벨, 27번 앙상블(67~111) 결과를 제출본 형식으로 내보내기
-- [ ] 실행기 처리기: 받기 → 해시 확인 → TASK 프레임 수·라벨 정의 검사 → 그 바이트를 올리기. shape·ensemble 형식 지원 (지금 올리기는 track_pending 중심)
-- [ ] 시험: 제출 뒤 분석 파일 변경·삭제, 다른 TASK에 붙인 제출, 라벨 정의가 바뀐 TASK
+- [x] (2c-4) `submissions/<M>/<제출ID>/` 고정 사본과 제출 정보(해시·크기·형식·TASK ID·서버·프레임 범위·프레임맵·라벨 이름·모델·설정·교체/덧붙임 동의)
+- [x] (2c-4) 5번 track_settings, 9·10번 자동 라벨, 27번 앙상블(67~111) 결과를 제출본 형식으로 내보내기
+- [x] (2c-4) 실행기 처리기: 받기 → 해시 확인 → TASK 프레임 수·라벨 정의 검사 → 그 바이트를 올리기. shape·ensemble 형식 지원 (지금 올리기는 track_pending 중심)
+- [x] (2c-4) 시험: 제출 뒤 분석 파일 변경·삭제, 다른 TASK에 붙인 제출, 라벨 정의가 바뀐 TASK
 
 ## D. 모델·데이터셋 읽기 보호 (G8)
 
-- [ ] 0번 `need_file`·`drive_pull`, 27번 25~38, 32번 모델 로드, 2·3번 검증: 받을 때 해시 확인, 사라졌거나 다르면 '다시 시도' 실패
-- [ ] `ctt.cleanup_plan`(2276~2310)·29번: 지우지 않고 채택 안 된 버전에 '정리 대상' 표시만. FORCE_NEW는 채택 표시만 바꿈. 23번은 새 버전 경로로 복원 뒤 채택
+- [ ] 0번 `need_file`·`drive_pull`, 27번 25~38, 32번 모델 로드, 2·3번 검증: 받을 때 해시 확인, 사라졌거나 다르면 '다시 시도' 실패 — 0·2·3·24·32번은 2c-1·2c-2에서 [x] (`S.model`·`pick_model`·`S.run_dir`·`S.dataset_of_model`), 27번은 2c-4
+- [x] (2b-5·2c-3) `ctt.cleanup_plan`(2276~2310)·29번: 지우지 않고 채택 안 된 버전에 '정리 대상' 표시만. FORCE_NEW는 채택 표시만 바꿈. 23번은 새 버전 경로로 복원 뒤 채택
 - [ ] 학습 출처의 지문과 실제 받은 모델 해시가 같은지 기록
 - [ ] 시험: 정리 중 모델 받기, 초기화 중 분석 모델 읽기
 

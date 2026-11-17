@@ -1,0 +1,53 @@
+{
+  "checked_source_files": 57,
+  "changed": [],
+  "syntax_errors": [],
+  "python": "3.14.4 (main, Aug 20 2026, 10:41:58) [GCC 15.2.0]",
+  "tests": {
+    "cells": {
+      "passed": 79,
+      "failed": 0,
+      "result_true": true
+    },
+    "hosts": {
+      "passed": 57,
+      "failed": 0,
+      "result_true": true
+    },
+    "handlers": {
+      "passed": 143,
+      "failed": 0,
+      "result_true": true
+    },
+    "e2e": {
+      "passed": 17,
+      "failed": 0,
+      "result_true": true
+    },
+    "master": {
+      "passed": 75,
+      "failed": 0,
+      "result_true": true
+    },
+    "arbiter": {
+      "passed": 247,
+      "failed": 0,
+      "result_true": true
+    },
+    "access": {
+      "passed": 68,
+      "failed": 0,
+      "result_true": true
+    },
+    "master_main": {
+      "passed": 62,
+      "failed": 0,
+      "result_true": true
+    },
+    "fuzz": {
+      "passed": 10,
+      "failed": 0,
+      "result_true": true
+    }
+  }
+}

@@ -1,0 +1,19 @@
+✅ 사람용 셀은 분석 모드에서만 시작 (EGG_ACCESS=exec면 거절)
+✅ 모르는 EGG_ACCESS 값이면 시작하지 않음
+✅ 12번 셀의 'cli' 같은 값은 분석·실행 어느 쪽도 아님
+✅ OPERATOR(사람 ID)가 없으면 시작하지 않음
+✅ 분석 폴더 analysis/<사람>/<날짜>_<세션>/
+✅ 공유 기록에 덧붙이기(logs/versions.csv) 거절
+✅ pathlib write_text도 거절
+✅ 공유 파일 지우기 거절
+✅ 공유 폴더 통째 지우기 거절
+✅ 공유 폴더에 새 폴더 만들기 거절
+✅ 공유 폴더로 복사 거절
+✅ 요청 파일도 직접 쓰기는 거절 (요청 API로만)
+✅ 읽기는 그대로
+✅ 분석 폴더 안은 씀
+✅ BASE 밖(Colab 로컬 디스크)은 그대로 씀
+Traceback (most recent call last):
+  File "/mnt/c/Users/user/Project/eggplant_v4.33.0/tests/test_cells_433.py", line 64, in <module>
+    import pandas as _pd
+ModuleNotFoundError: No module named 'pandas'

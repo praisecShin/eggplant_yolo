@@ -49,7 +49,8 @@ class MasterLoop:
         self.decide_errors = 0
         self.last_arbiter: Optional[dict] = None       # 마지막으로 쓴 회차 기록 (깨우기 요약 포함) — master_main이 읽음
         self.last_acting_at = 0.0
-        self.last_clean_at = 0.0                       # 모름 없이 읽고 모두 쓴 마지막 회차 (master_main 밤 끝내기, U6)
+        self.last_clean_at = 0.0
+        self.last_arbiter_fresh = False                       # 모름 없이 읽고 모두 쓴 마지막 회차 (master_main 밤 끝내기, U6)
         self.last_run_at = 0.0                         # 마지막 회차 시작 시각 (성공·실패와 무관)
         self.cfg_reject: Optional[str] = None          # 마지막으로 새 설정을 받지 않은 이유 (CTRL앱에 보임)
         self.status_extra: dict = {}                   # master_main이 채우는 상태 (GPU 상태 모름 등) — 생존 신호에 실음
@@ -112,6 +113,7 @@ class MasterLoop:
 
     def run_once(self) -> RoundSummary:
         self.last_run_at = self.clock()
+        self.last_arbiter_fresh = False            # 이번 회차에 회차 기록을 실제로 썼는가 — GPU 기동은 이것일 때만 (b22 R2)
         cfg = self._cfg()
         if cfg is None:
             return RoundSummary(False, 0, 0, None, ["config"], ["config_unreadable"])
@@ -133,6 +135,7 @@ class MasterLoop:
         if failed is None and res.writes and res.writes[-1].path == A.P_ARBITER:
             self.last_round = int(res.writes[-1].obj.get("round", self.last_round))
             self.last_arbiter = res.writes[-1].obj
+            self.last_arbiter_fresh = True
         if res.acting:
             self.last_acting_at = self.clock()
             if not unknown and failed is None and self.last_arbiter is not None and n == len(res.writes) \

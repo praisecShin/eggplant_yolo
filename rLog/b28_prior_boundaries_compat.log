@@ -1,0 +1,3 @@
+{"mode": "lost", "error": "AuthorityLost", "grandchild_live": false, "status": {"child_rc": -15, "clean": true, "left": [], "stopped": true}}
+{"mode": "fail", "error": "RuntimeError", "grandchild_live": false, "status": {"child_rc": 3, "clean": true, "left": [], "stopped": false}}
+{"mode": "zombie", "error": "AuthorityLost", "grandchild_live": false, "status": {"child_rc": -15, "clean": true, "left": [], "stopped": true}}

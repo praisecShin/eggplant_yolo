@@ -1,0 +1,3 @@
+{"manifest": [], "error": "AttributeError", "message": "'list' object has no attribute 'get'"}
+{"manifest": null, "error": "AttributeError", "message": "'NoneType' object has no attribute 'get'"}
+{"manifest": {"verified": true, "files": {"best.pt": []}}, "models": [{"name": "bad", "version": "v1", "adopted_at": null, "files": {"best.pt": "runs/bad/v/v1/best.pt"}, "sizes": {"best.pt": 0}, "meta": {}}, {"name": "good", "version": "v1", "adopted_at": null, "files": {"best.pt": "runs/good/v/v1/best.pt"}, "sizes": {"best.pt": 1}, "meta": {}}]}

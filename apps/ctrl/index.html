@@ -88,6 +88,7 @@ dialog::backdrop{background:rgb(20 10 25/.5)}dialog h3{margin:0 0 8px}
 
 <div id="testband" class="band test" hidden>시험 폴더(eggplant_yolo_test)를 보고 있습니다. 여기서 보내는 신호는 시험 시스템에만 갑니다.</div>
 <div id="prot" class="band prot" hidden></div>
+<div id="holdon" class="band note" hidden></div>
 <div id="note"></div>
 
 <section class="board" id="board" aria-label="생존 신호"></section>
@@ -256,8 +257,9 @@ function arbiterState() {
   if (!A || A.__bad) return { t: "ba", v: "기록 없음", s: "arb/ARBITER.json 없음", alive: false };
   const age = now() - secOf(A.at), same = G && A.session === G.session && Number(A.epoch) === Number(G.epoch);
   const alive = same && age <= ALIVE;
-  return { t: alive ? (A.protect && A.protect.length ? "ba" : "ok") : "ba", alive,
-    v: alive ? (A.protect && A.protect.length ? "보호 모드" : "판정 중") : same ? "멈춤" : "자격 없음",
+  const hold = Array.isArray(A.hold_on) && A.hold_on.length > 0;      // 읽지 못한 것이 있어 판정을 미룸 (0o)
+  return { t: alive ? (A.protect && A.protect.length ? "ba" : hold ? "wa" : "ok") : "ba", alive,
+    v: alive ? (A.protect && A.protect.length ? "보호 모드" : hold ? "판정 보류" : "판정 중") : same ? "멈춤" : "자격 없음",
     s: `${ago(secOf(A.at))} · ${A.round || "?"}회차 · epoch ${A.epoch ?? "?"} · ${A.session || ""}` };
 }
 function workerCells() {
@@ -290,6 +292,12 @@ function render() {
     <ol><li>그 파일이 가리키는 일의 실행기 생존 신호·단계 기록과 CVAT 상태를 확인합니다.</li>
     <li>Drive 버전 기록에서 직전 판으로 되돌립니다. <b>파일을 지우지 않습니다</b> (지우면 같은 TASK가 다시 배정될 수 있음).</li>
     <li>다음 회차(25초 안)에 풀리고 '보호 모드 끝남' 알림이 옵니다. (배포 계획 9-1절)</li></ol>`;
+  // 판정 보류 띠 (0o): 읽지 못한 파일이 있어 새 판정을 미루는 중
+  const ho = Array.isArray(A.hold_on) ? A.hold_on : [];
+  $("#holdon").hidden = !ho.length || prot.length > 0;
+  if (ho.length && !prot.length) $("#holdon").innerHTML = `<b>판정 보류</b> — 읽지 못한 것이 있어 새 접수·배정·신호 처리를 미루고 있습니다${A.hold_on_since ? " (" + esc(ago(A.hold_on_since)) + "부터)" : ""}. 보통 다음 회차에 풀립니다. 30분이 넘으면 메일로 알립니다.
+    <div class="mono">${ho.slice(0, 6).map((x) => esc(String(x).replace(/^(file|dup):/, (m) => m === "dup:" ? "같은 이름 여럿: " : ""))).join("<br>")}</div>
+    ${ho.some((x) => String(x).startsWith("dup:")) ? "<div>같은 이름 파일은 Drive에서 하나만 남겨야 풀립니다 (배포 계획 T18).</div>" : ""}`;
   // 상태 판
   const a = arbiterState(), ws = workerCells(), masters = ws.filter((w) => (w.caps || []).includes("master"));
   const cells = [cell("판정 루프", a.v, esc(a.s), a.t)];

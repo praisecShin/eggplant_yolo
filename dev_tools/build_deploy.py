@@ -34,6 +34,13 @@ def kernel_meta(slug: str, title: str, code_file: str, gpu: bool, datasets) -> d
             "kernel_sources": []}
 
 
+def fill_boot(man_sha: str, man_name: str, role: str, kernel: str, test: bool, remote: str, admin: str, reserved) -> str:
+    b = BOOT.read_text(encoding="utf-8")
+    return (b.replace("__MANIFEST_SHA256__", man_sha).replace("__MANIFEST_NAME__", man_name).replace("__ROLE__", role)
+            .replace("__KERNEL__", kernel).replace("__TEST__", "True" if test else "False")
+            .replace("__REMOTE__", remote).replace("__ADMIN_REMOTE__", admin).replace("__RESERVED__", repr(reserved)))
+
+
 def notebook(source: str) -> bytes:
     nb = {"cells": [{"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [],
                      "source": source.splitlines(keepends=True)}],
@@ -53,23 +60,29 @@ def build(out: Path, kaggle_user: str, test: bool, gpu_notebook: Path = None, da
     for p in sorted((src / "drive" / "scripts").glob("*.py")) + [src / "drive" / "scripts" / "notebook_cells.json"]:
         if p.exists():
             files["scripts/" + p.name] = p.read_bytes()
-    if gpu_notebook:
-        gname = f"eggplant_gpu_worker{sfx_title}.ipynb"
-        files[gname] = Path(gpu_notebook).read_bytes()
-        gslug = f"{kaggle_user}/eggplant-gpu-worker{sfx_slug}"
-        files["kernel-metadata-gpu-worker.json"] = json.dumps(
-            kernel_meta(gslug, f"eggplant-gpu-worker{sfx_title}", gname, True, datasets), indent=2).encode()
     # 가지 앱 모듈 이름 (지금 scripts + 옛 이름): 목록에 없으면 설치 폴더에서도 불러오지 않음 (V3)
     reserved = sorted({p.stem for p in (src / "drive" / "scripts").glob("*.py")} | set(LEGACY_MODULES))
+    gname = f"eggplant_gpu_worker{sfx_title}.ipynb"
+    gslug = f"{kaggle_user}/eggplant-gpu-worker{sfx_slug}"
+    if gpu_notebook:                                   # 손으로 만든 노트북 (옛 방식·시험)
+        files[gname] = Path(gpu_notebook).read_bytes()
+        worker_info = {"gpu_notebook": "given"}
+    else:
+        # GPU 작업자 뿌리 노트북 (2b-6): scripts만 담은 작업자 목록의 해시를 고정 → 그 노트북과 목록을 배포 목록에 넣음
+        # 사슬: 마스터 노트북 → manifest.json → (GPU 노트북 → worker_manifest.json → scripts)
+        wman = (json.dumps({"files": {k: sha256(v) for k, v in sorted(files.items()) if k.startswith("scripts/")}},
+                           ensure_ascii=False, sort_keys=True, indent=1)).encode()
+        files["worker_manifest.json"] = wman
+        files[gname] = notebook(fill_boot(sha256(wman), "worker_manifest.json", "gpu", gslug, test, remote, admin, reserved))
+        worker_info = {"gpu_notebook": "built", "worker_manifest_sha256": sha256(wman)}
+    files["kernel-metadata-gpu-worker.json"] = json.dumps(
+        kernel_meta(gslug, f"eggplant-gpu-worker{sfx_title}", gname, True, datasets), indent=2).encode()
     # ② 배포 목록 — 마스터 노트북·목록 자신은 넣지 않음 (한 방향 사슬)
     manifest = (json.dumps({"files": {k: sha256(v) for k, v in sorted(files.items())}}, ensure_ascii=False,
                            sort_keys=True, indent=1)).encode()
     man_sha = sha256(manifest)
     # ③ 목록 해시를 마스터 노트북에 고정
-    boot = BOOT.read_text(encoding="utf-8")
-    boot = (boot.replace("__MANIFEST_SHA256__", man_sha).replace("__TEST__", "True" if test else "False")
-            .replace("__REMOTE__", remote).replace("__ADMIN_REMOTE__", admin)
-            .replace("__RESERVED__", repr(reserved)))
+    boot = fill_boot(man_sha, "manifest.json", "master", "", test, remote, admin, reserved)
     nb_name = f"eggplant_cpu_master{sfx_title}.ipynb"
     nb = notebook(boot)
     # ④ Keeper용 해시
@@ -83,7 +96,7 @@ def build(out: Path, kaggle_user: str, test: bool, gpu_notebook: Path = None, da
     mslug = f"{kaggle_user}/eggplant-cpu-master{sfx_slug}"
     (out / "kernel-metadata.json").write_text(json.dumps(       # Keeper가 읽음 (마스터 실행 설정)
         kernel_meta(mslug, f"eggplant-cpu-master{sfx_title}", nb_name, False, datasets), indent=2), encoding="utf-8")
-    info = {"test": test, "manifest_sha256": man_sha, "master_nb_sha256": nb_sha, "master_notebook": nb_name,
+    info = {**worker_info, "test": test, "manifest_sha256": man_sha, "master_nb_sha256": nb_sha, "master_notebook": nb_name,
             "master_slug": mslug, "files": len(files), "remote": remote, "admin_remote": admin}
     (out / "DEPLOY_INFO.json").write_text(json.dumps(info, indent=2, ensure_ascii=False), encoding="utf-8")
     return info

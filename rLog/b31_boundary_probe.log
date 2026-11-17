@@ -1,0 +1,3 @@
+{"case": "install_failure", "active_is_previous": true, "shared_write_blocked": true}
+{"case": "concurrent_start", "results": {"0": "AnalysisRefused('공유 폴더에 쓸 수 없습니다 (os.mkdir: not_permitted:analysis/M1/261117_1428_0528vn67) — 결과는 OUT(분석 폴더)에, 바꾸는 일은 request(...)로')", "1": "AnalysisRefused('공유 폴더에 쓸 수 없습니다 (os.mkdir: not_permitted:analysis/M1/261117_1428_0528xjss) — 결과는 OUT(분석 폴더)에, 바꾸는 일은 request(...)로')"}, "shared_write_blocked": true, "active_is_previous": true}
+{"case": "boot_other_thread", "allowed": false, "outside_allowed": false}

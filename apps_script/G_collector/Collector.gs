@@ -30,7 +30,7 @@
  *
  * 실행할 함수: checkSetup() · testOnce() · installTrigger() · uninstallTrigger() · fullSyncNow() · backfillVfNow() · (Uld.gs) uldCheckSetup()
  */
-const COLLECTOR_VERSION = '4.33.0l';
+const COLLECTOR_VERSION = '4.33.0n';
 const CFG = {
   EVERY_MIN: 10,            // 자동 실행 간격 (분): 1, 5, 10, 15, 30 중 하나
   FULL_EVERY_H: 24,        // 전체 다시 맞추기 간격 (시간) — 사라진 TASK는 이때 알아냄
@@ -241,6 +241,7 @@ function collect_(t0, forceFull) {
   };
   // 4-1) 자동 요청할 사건을 스냅숏보다 먼저 '보낼 목록'(auto_pending.json)에 넣음 (b17 X3)
   //      여기서 실패하면 스냅숏을 바꾸지 않고 실행 실패 → 다음 차례에 같은 변화를 다시 봄
+  readPending_(dir);                       // 보낼 목록의 형태부터 확인 — 틀리면 수집 실패 (바뀐 것이 없어도, b19 Z2)
   const queued = first ? null : queueAutoEvents_(c, dir, changes, tasks);
   writeJson_(dir, 'cvat_tasks.json', snap);
   if (changes.length) {
@@ -375,7 +376,9 @@ function writeHeartbeat_(c, t0, res) {
   const runs = (prev.runs || []).concat([{ time: run.time, ok: run.ok, mode: run.mode, changes: run.changes, sec: run.sec, error: run.error }]).slice(-30);
   writeJson_(dir, 'collector.json', {     // time·ok는 맨 위에도 — Keeper의 멈춤 감시가 읽음 (b17 X5)
     version: COLLECTOR_VERSION, time: run.time, ok: !!res.ok, every_min: CFG.EVERY_MIN, last: run,
-    last_ok: res.ok ? run.time : prev.last_ok || null, runs,
+    last_ok: res.ok ? run.time : prev.last_ok || null,
+    fail_since: res.ok ? null : prev.fail_since || run.time,     // 연속 실패가 시작된 시각 — 한 번도 성공 못 해도 멈춤 알림 (b19 Z5)
+    runs,
   });
 }
 
@@ -455,20 +458,22 @@ const PENDING_RECHECK_SEC = 600;
 const AUTO_KINDS_ = ['export', 'backup'];
 const evKey_ = (kind, h) => `${kind}:${h.id}:${h.updated || ''}`;
 const isMap_ = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
+const isDate_ = (x) => typeof x === 'string' && x !== '' && !isNaN(Date.parse(x));     // 실제로 해석되는 시각 (b19 Z2)
 function pendingProblem_(o) {
   if (!isMap_(o)) return 'top';
   if (!isMap_(o.events)) return 'events';
   if (!isMap_(o.batches)) return 'batches';
   for (const [k, e] of Object.entries(o.events)) {
     if (!isMap_(e) || AUTO_KINDS_.indexOf(e.kind) < 0 || !isFinite(Number(e.id)) || e.id === null || e.id === ''
-      || typeof e.name !== 'string' || (e.updated != null && typeof e.updated !== 'string')) return 'event:' + k;
+      || typeof e.name !== 'string' || (e.updated != null && typeof e.updated !== 'string') || !isDate_(e.at)) return 'event:' + k;
     if (k !== evKey_(e.kind, e)) return 'event_key:' + k;
   }
   for (const [id, b] of Object.entries(o.batches)) {
     if (!isMap_(b) || AUTO_KINDS_.indexOf(b.kind) < 0 || !Array.isArray(b.keys)) return 'batch:' + id;
     for (const k of b.keys) if (typeof k !== 'string' || !o.events[k] || o.events[k].kind !== b.kind) return 'batch_key:' + id;
     if (b.file_id != null && typeof b.file_id !== 'string') return 'batch_file:' + id;
-    if (b.attempt_at != null && typeof b.attempt_at !== 'string') return 'batch_attempt:' + id;
+    if (!isDate_(b.at)) return 'batch_at:' + id;
+    if (b.attempt_at != null && !isDate_(b.attempt_at)) return 'batch_attempt:' + id;   // 해석 못 하는 '시도함'으로 다시 만들지 않음 (Z2)
   }
   return '';
 }
@@ -497,7 +502,7 @@ function queueHits_(dir, lists) {
   let n = 0;
   all.forEach(([kind, h]) => {
     const o = log.items[`${kind}:${h.id}`], k = evKey_(kind, h);
-    if ((o && o.updated === h.updated) || pend.events[k]) return;
+    if ((o && (o.updated === h.updated || tms_(o.updated) === tms_(h.updated))) || pend.events[k]) return;   // 같은 시각이면 표기가 달라도 같은 사건 (Q3)
     pend.events[k] = { kind, id: h.id, name: h.name, updated: h.updated || '', state: h.state, at: new Date().toISOString() };
     n++;
   });
@@ -506,11 +511,14 @@ function queueHits_(dir, lists) {
 }
 
 /** 사건 목록 → TASK마다 최신 하나 (updated, 같으면 넣은 시각 순) */
+/** 시각 비교는 글자가 아니라 숫자(ms)로 — 표기(소수초·시간대)가 달라도 순서가 맞게 (b20 Q3). 해석 못 하면 가장 옛것 */
+const tms_ = (x) => { const v = Date.parse(x); return isNaN(v) ? -Infinity : v; };
+const newerOrSame_ = (a, b) => tms_(a) >= tms_(b);
 function latestPerTask_(evs) {
   const by = {};
   evs.forEach((e) => {
     const k = String(e.id), o = by[k];
-    if (!o || String(e.updated) > String(o.updated) || (String(e.updated) === String(o.updated) && String(e.at) > String(o.at))) by[k] = e;
+    if (!o || tms_(e.updated) > tms_(o.updated) || (tms_(e.updated) === tms_(o.updated) && tms_(e.at) > tms_(o.at))) by[k] = e;
   });
   return Object.keys(by).sort((a, b) => Number(a) - Number(b)).map((k) => by[k]);
 }
@@ -533,7 +541,10 @@ function flushAutoRequests_(c, dir, by) {
     looseBackup.forEach((k) => {
       const h = pend.events[k], p = parseName_(h.name), b = (p ? p.base : h.name).toLowerCase();
       if (videos[b] || uld[String(h.id)]) {
-        log.items[`backup:${h.id}`] = { name: h.name, updated: h.updated, time: new Date().toISOString(), skipped: 'original_exists' };
+        const key = `backup:${h.id}`, prev = log.items[key], now_ = new Date().toISOString();
+        const hist = ((prev && prev.history) || []).concat([{ skipped: 'original_exists', updated: h.updated, time: now_ }]).slice(-10);
+        log.items[key] = !prev || newerOrSame_(h.updated, prev.updated)          // 더 옛 사건이면 이력에만 (b20 Q4)
+          ? { name: h.name, updated: h.updated, time: now_, skipped: 'original_exists', history: hist } : Object.assign({}, prev, { history: hist });
         delete pend.events[k]; skipped++; dirty = true;
       }
     });
@@ -586,8 +597,12 @@ function flushAutoRequests_(c, dir, by) {
       if (b.kind === 'export') nExp += list.length; else nBak += list.length;
       const stamp = new Date().toISOString();
       list.forEach((h) => {
-        const n = evs.filter((e) => String(e.id) === String(h.id)).length;
-        log.items[`${b.kind}:${h.id}`] = Object.assign({ name: h.name, updated: h.updated, time: stamp, request: id, by }, n > 1 ? { merged: n } : {});
+        const n = evs.filter((e) => String(e.id) === String(h.id)).length, key = `${b.kind}:${h.id}`, prev = log.items[key];
+        const hist = ((prev && prev.history) || []).concat([{ request: id, updated: h.updated, time: stamp }]).slice(-10);
+        // 늦게 발행된 옛 묶음이 더 최신 기록을 과거로 되돌리지 않음 — 발행 이력만 더함 (b19 Z3)
+        const newer = !prev || newerOrSame_(h.updated, prev.updated);    // 건너뜀 기록도 같은 규칙 (b20 Q4), 숫자 비교 (Q3)
+        log.items[key] = newer ? Object.assign({ name: h.name, updated: h.updated, time: stamp, request: id, by }, n > 1 ? { merged: n } : {}, { history: hist })
+          : Object.assign({}, prev, { history: hist });
       });
       log.generated = stamp;
       writeJson_(dir, AUTO_FILE, log);

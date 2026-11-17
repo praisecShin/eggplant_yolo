@@ -1,0 +1,123 @@
+[
+  {
+    "name": "arbiter",
+    "cmd": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_arbiter_433.py",
+      "drive"
+    ],
+    "rc": 0,
+    "seconds": 1.5
+  },
+  {
+    "name": "access",
+    "cmd": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_access_433.py",
+      "drive"
+    ],
+    "rc": 0,
+    "seconds": 0.1
+  },
+  {
+    "name": "master",
+    "cmd": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_master_433.py",
+      "drive"
+    ],
+    "rc": 0,
+    "seconds": 1.6
+  },
+  {
+    "name": "master_main",
+    "cmd": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_master_main_433.py",
+      "drive"
+    ],
+    "rc": 0,
+    "seconds": 21.1
+  },
+  {
+    "name": "handlers",
+    "cmd": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_handlers_433.py",
+      "drive"
+    ],
+    "rc": 0,
+    "seconds": 2.1
+  },
+  {
+    "name": "hosts",
+    "cmd": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_hosts_433.py",
+      "drive"
+    ],
+    "rc": 0,
+    "seconds": 2.3
+  },
+  {
+    "name": "e2e",
+    "cmd": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_e2e_433.py",
+      "drive"
+    ],
+    "rc": 0,
+    "seconds": 0.8
+  },
+  {
+    "name": "fuzz",
+    "cmd": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_fuzz_433.py",
+      "drive"
+    ],
+    "rc": 0,
+    "seconds": 12.4
+  },
+  {
+    "name": "fuzz7",
+    "cmd": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_fuzz_433.py",
+      "drive"
+    ],
+    "rc": 0,
+    "seconds": 23.2
+  },
+  {
+    "name": "collector",
+    "cmd": [
+      "node",
+      "tests/test_collector.js",
+      "apps_script/G_collector/Collector.gs",
+      "apps_script/G_collector/Uld.gs"
+    ],
+    "rc": 0,
+    "seconds": 0.2
+  },
+  {
+    "name": "keeper",
+    "cmd": [
+      "node",
+      "tests/test_keeper.js",
+      "apps_script/G_keeper/Keeper.gs"
+    ],
+    "rc": 0,
+    "seconds": 0.1
+  },
+  {
+    "name": "ctrl",
+    "cmd": [
+      "node",
+      "tests/test_ctrl_app.js",
+      "apps/ctrl/index.html"
+    ],
+    "rc": 0,
+    "seconds": 10.0
+  }
+]

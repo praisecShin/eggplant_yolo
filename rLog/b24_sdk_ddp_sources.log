@@ -1,0 +1,203 @@
+cvat_sdk-2.79.0-py3-none-any.whl SHA256=b349ab8c1597b809bcce84c5ce85edbb6cd727871ea95470790a189fed61446a
+ultralytics-8.4.215-py3-none-any.whl SHA256=a1625f08b3148849ffad258f957801d84b690bdfd1ff60df0c0e0a297f9bf017
+
+SOURCE cvat_sdk/core/client.py
+220:     def wait_for_completion(
+221:         self: Client,
+222:         rq_id: str,
+223:         *,
+224:         status_check_period: int | None = None,
+225:         log_prefix: str | None = None,
+226:     ) -> tuple[models.Request, urllib3.HTTPResponse]:
+227:         if status_check_period is None:
+228:             status_check_period = self.config.status_check_period
+229: 
+230:         while True:
+231:             request, response = self.api_client.requests_api.retrieve(rq_id)
+232:             status, message = request.status, request.message
+233: 
+234:             log_prefix = log_prefix or f"{request.operation.type} operation"
+235:             self.logger.info(
+236:                 "%s status: %s (message=%s)",
+237:                 log_prefix,
+238:                 status,
+239:                 message,
+240:             )
+241:             if status.value == models.RequestStatus.allowed_values[("value",)]["FINISHED"]:
+242:                 break
+243:             elif status.value == models.RequestStatus.allowed_values[("value",)]["FAILED"]:
+244:                 raise BackgroundRequestException(message)
+245: 
+246:             sleep(status_check_period)
+247: 
+248:         return request, response
+249: 
+250:     def check_server_version(self, fail_if_unsupported: bool | None = None) -> None:
+251:         if fail_if_unsupported is None:
+
+SOURCE cvat_sdk/core/proxies/tasks.py
+149:     def import_annotations(
+150:         self,
+151:         format_name: str,
+152:         filename: StrPath,
+153:         *,
+154:         conv_mask_to_poly: bool | None = None,
+155:         import_mode: str | None = None,
+156:         status_check_period: int | None = None,
+157:         pbar: ProgressReporter | None = None,
+158:     ):
+159:         """
+160:         Upload annotations for a task in the specified format (e.g. 'YOLO 1.1').
+161:         """
+162: 
+163:         filename = Path(filename)
+164: 
+165:         AnnotationUploader(self._client).upload_file_and_wait(
+166:             self.api.create_annotations_endpoint,
+167:             filename,
+168:             format_name,
+169:             url_params={"id": self.id},
+170:             conv_mask_to_poly=conv_mask_to_poly,
+171:             import_mode=import_mode,
+172:             pbar=pbar,
+173:             status_check_period=status_check_period,
+174:         )
+175: 
+176:         self._client.logger.info(f"Annotation file '{filename}' for task #{self.id} uploaded")
+177: 
+178:     def get_frame(
+179:         self,
+180:         frame_id: int,
+
+SOURCE cvat_sdk/core/exceptions.py
+1: # Copyright (C) CVAT.ai Corporation
+2: #
+3: # SPDX-License-Identifier: MIT
+4: 
+5: 
+6: class CvatSdkException(Exception):
+7:     """Base class for SDK exceptions"""
+8: 
+9: 
+10: class InvalidHostException(CvatSdkException):
+11:     """Indicates an invalid hostname error"""
+12: 
+13: 
+14: class IncompatibleVersionException(CvatSdkException):
+15:     """Indicates server and SDK version mismatch"""
+16: 
+17: 
+18: class BackgroundRequestException(CvatSdkException):
+19:     """
+20:     Exception is raised when a background request fails
+21:     """
+22: 
+23: 
+24: class AuthStoreError(CvatSdkException):
+
+SOURCE ultralytics/utils/dist.py
+53: 
+54:     This function creates a temporary Python file that enables distributed training across multiple GPUs, plus a
+55:     companion `.pt` file holding the pickled trainer state that each DDP worker loads to rebuild the trainer.
+56: 
+57:     Args:
+58:         trainer (ultralytics.engine.trainer.BaseTrainer): The trainer containing training configuration and arguments.
+59:             Must have args attribute and be a class instance.
+60: 
+61:     Returns:
+62:         (str): Path to the generated temporary DDP file.
+63: 
+64:     Notes:
+65:         Both files are saved in the USER_CONFIG_DIR/DDP directory:
+66:         - The `.pt` state file stores the trainer class, trainer arguments, model, and callbacks (via cloudpickle)
+67:         - The `.py` script loads that state, rebuilds the trainer with the saved arguments as overrides, and trains
+68:     """
+69:     from .checks import check_requirements
+70: 
+71:     check_requirements("cloudpickle>=3.1.1")  # DDP-only, installed on first multi-GPU launch
+72:     import cloudpickle
+73: 
+74:     (USER_CONFIG_DIR / "DDP").mkdir(exist_ok=True)
+75:     with tempfile.NamedTemporaryFile(
+76:         prefix="_temp_",
+77:         suffix=f"{id(trainer)}.py",
+78:         mode="w+",
+79:         encoding="utf-8",
+80:         dir=USER_CONFIG_DIR / "DDP",
+81:         delete=False,
+82:     ) as file:
+83:         path = Path(file.name).with_suffix(".pt")
+84:         torch_save(
+85:             {
+86:                 "trainer": type(trainer),
+87:                 "args": vars(trainer.args),
+88:                 "model": trainer.model,
+89:                 "callbacks": trainer.callbacks,
+90:             },
+91:             path,
+92:             pickle_module=cloudpickle,
+93:         )
+94:         file.write(
+95:             f"""
+96: # Ultralytics Multi-GPU training temp file (should be automatically deleted after use)
+97: if __name__ == "__main__":
+98:     import sys
+99:     sys.path = {sys.path!r}
+100: 
+101:     from ultralytics.utils import DEFAULT_CFG_DICT
+102:     from ultralytics.utils.patches import torch_load
+103: 
+104:     state = torch_load({str(path)!r}, map_location="cpu")
+105: 
+106:     cfg = DEFAULT_CFG_DICT.copy()
+107:     cfg.update(save_dir='')   # handle the extra key 'save_dir'
+108:     trainer = state["trainer"](cfg=cfg, overrides=state["args"], _callbacks=state["callbacks"])
+109:     trainer.model = state["model"]
+110:     trainer.train()
+111: """
+112:         )
+113:     return file.name
+114: 
+115: 
+116: def generate_ddp_command(trainer: BaseTrainer) -> tuple[list[str], str]:
+117:     """Generate command for distributed training.
+118: 
+119:     Removes the trainer's save directory unless resuming, writes the temporary DDP file, and selects a free port for the
+
+SOURCE ultralytics/engine/trainer.py
+233:     def run_callbacks(self, event: str):
+234:         """Run all existing callbacks associated with a particular event."""
+235:         for callback in self.callbacks.get(event, []):
+236:             callback(self)
+237: 
+238:     def train(self):
+239:         """Execute the training process, using DDP subprocess for multi-GPU or direct training for single-GPU."""
+240:         # Run subprocess if DDP training, else train normally
+241:         try:
+242:             if self.world_size > 1 and self.args.batch < self.world_size:
+243:                 raise ValueError(
+244:                     f"'batch={self.args.batch}' must be >= GPU count {self.world_size} for Multi-GPU training "
+245:                     f"(AutoBatch batch<1 is not supported), i.e. batch={self.world_size * 8}."
+246:                 )
+247:             if self.ddp:
+248:                 # Argument checks
+249:                 if self.args.rect:
+250:                     LOGGER.warning("'rect=True' is incompatible with Multi-GPU training, setting 'rect=False'")
+251:                     self.args.rect = False
+252: 
+253:                 # Command
+254:                 cmd, file = None, None
+255:                 try:
+256:                     cmd, file = generate_ddp_command(self)
+257:                     LOGGER.info(f"{colorstr('DDP:')} debug command {' '.join(cmd)}")
+258:                     subprocess.run(cmd, check=True)
+259:                 finally:
+260:                     if file is not None:
+261:                         ddp_cleanup(self, str(file))
+262: 
+263:             else:
+264:                 self._do_train()
+265:         finally:
+266:             unset_deterministic()  # never leave deterministic state on, including the DDP parent and failed runs
+267:             if not self.ddp:
+268:                 self.run_callbacks("teardown")

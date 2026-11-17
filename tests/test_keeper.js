@@ -413,4 +413,41 @@ ok(mails.some((m) => /⚠ 보호 모드/.test(m.subject)) && fetches.filter((f) 
   fresh(); ROOT.put('status', 'collector.json', failing); ctx.keeper();
   ok(mails.some((m) => /수집기 멈춤/.test(m.subject)), 'keeper(): 수집기가 20분 넘게 계속 실패하면 멈춤 메일 (b18 보충)');
 }
+
+// ══ 0m (b19)
+{
+  // Z5: 한 번도 성공하지 못한 수집기 — fail_since부터 20분
+  const tNow = new RealDate(NOW - 30e3).toISOString(), tOld = new RealDate(NOW - 1300e3).toISOString();
+  const never = { version: '4.33.0m', time: tNow, ok: false, last: { time: tNow, ok: false }, last_ok: null, fail_since: tOld, runs: [] };
+  ok(ctx.kpCollectorAt_(never) === NOW - 1300e3, '성공한 적이 없으면 연속 실패 시작 시각(fail_since)이 기준 (Z5)');
+  fresh(); ROOT.put('status', 'collector.json', never); ctx.keeper();
+  ok(mails.some((m) => /수집기 멈춤/.test(m.subject)), 'keeper(): 설치 후 한 번도 성공 못 하고 20분 넘게 실패하면 멈춤 메일 (Z5)');
+  let real = null; try { real = JSON.parse(fs.readFileSync('/tmp/collector_hb_never_ok.json', 'utf8')); } catch (e) { /* 수집기 시험이 먼저 */ }
+  if (real) ok(ctx.kpCollectorAt_(real) === RealDate.parse(real.fail_since), '실제 수집기 산출물(성공 없음)의 fail_since를 읽음 (Z5 연결)');
+  // 보충: 보낼 수 없는 동안 보호 모드가 여러 번 바뀌어도 중요 알림은 '지금 상태' 하나
+  const items = [];
+  for (let i = 0; i < 6; i++) items.push({ t: 'mail', important: true, group: 'protect', subject: i % 2 ? '끝남' : '보호', body: 'b' + i, tries: 0 },
+    { t: 'push', important: true, group: 'protect', title: i % 2 ? '끝남' : '보호', message: 'm' + i, tries: 0 });
+  const realMail = ctx.MailApp.sendEmail; ctx.MailApp.sendEmail = () => { throw new Error('quota'); };
+  const realFetch = ctx.UrlFetchApp.fetch; ctx.UrlFetchApp.fetch = () => ({ getResponseCode: () => 503 });
+  const o = ctx.kpSendOutbox_({ mail: 'a0@x', ntfyTopic: 'tp', ntfyServer: 'https://ntfy.sh' }, items);
+  const om = o.left.filter((x) => x.t === 'mail'), op = o.left.filter((x) => x.t === 'push');
+  ok(om.length === 1 && op.length === 1 && om[0].subject === '끝남' && /6번 바뀜/.test(om[0].body) && /6번 바뀜/.test(op[0].message),
+    '보호 모드가 6번 바뀌는 동안 못 보냈으면 메일·푸시 각각 마지막 상태 하나만 남기고 횟수를 적음 (b19 보충)');
+  const o2 = ctx.kpSendOutbox_({ mail: 'a0@x', ntfyTopic: 'tp', ntfyServer: 'https://ntfy.sh' },
+    o.left.concat([{ t: 'mail', important: true, group: 'protect', subject: '보호', body: 'b7', tries: 0 }]));
+  const om2 = o2.left.filter((x) => x.t === 'mail');
+  ok(om2.length === 1 && om2[0].subject === '보호' && /7번 바뀜/.test(om2[0].body) && (om2[0].body.match(/번 바뀜/g) || []).length === 1, '다음 차례에도 하나로, 횟수는 이어서');
+  ctx.MailApp.sendEmail = realMail; ctx.UrlFetchApp.fetch = realFetch;
+}
+
+// ══ 0o: 판정 보류 30분 알림 → 메일 + 푸시, 같은 이름 파일 → 메일
+{
+  const d1 = D_({ alerts: [{ id: 'hold_on_x', obj: { kind: 'hold_on_long', minutes: 31, unknown: ['file:arb/holds/a.json', 'dup:requests/REQ_x__track__pending.json'] } },
+    { id: 'dupy', obj: { kind: 'duplicate_path', path: 'requests/REQ_x__track__pending.json' } }] });
+  ok(d1.mails.some((m) => /판정 보류 30분/.test(m.subject) && /dup:requests/.test(m.body)) && d1.pushes.some((p) => /판정 보류/.test(p.title))
+    && d1.mails.some((m) => /같은 이름 파일/.test(m.subject)), '판정 보류 30분 알림은 메일·푸시, 같은 이름 파일은 메일 (0o)');
+  const d2 = D_({ alerts: [{ id: 'hold_on_x', obj: { kind: 'hold_on_long' } }], mailed: ['hold_on_x'] });
+  ok(!d2.mails.length && !d2.pushes.length, '같은 판정 보류 알림은 한 번만');
+}
 console.log(process.exitCode ? 'RESULT False' : 'RESULT True');

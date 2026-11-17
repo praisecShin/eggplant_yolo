@@ -20,7 +20,7 @@
  *
  * ⚠ Kaggle API로 노트북을 올리는 부분(kagglePush_)은 실제 계정으로 한 번 시험해야 합니다 (먼저 시험할 것).
  */
-const KEEPER_VERSION = '4.33.0l';
+const KEEPER_VERSION = '4.33.0o';
 const KP = {
   ALIVE_SEC: 180,          // 심판 회차·생존 신호 3분
   WAKE_GAP_SEC: 600,       // 깨우기 사이 최소 10분 / 깨우기 신호 최대 나이
@@ -94,7 +94,7 @@ function keeperDecide_(st) {
     (st.alerts || []).forEach((a) => { mailed[a.id] = 1; });
     (st.signals || []).forEach((x) => { mailed['ignored_stop_' + x.id] = 1; });
     if (g.session) mailed['stalled_' + g.session + '_' + g.epoch] = 1;
-    out.mails.push({ key: '', important: true, subject: '[가지 앱] Keeper 기록을 읽지 못함',
+    out.mails.push({ key: '', important: true, group: 'keeper_unreadable', subject: '[가지 앱] Keeper 기록을 읽지 못함',
       body: 'jobs/keeper.json을 읽지 못해 보낸 알림 이력을 새로 시작합니다. 보호 모드 알림이 한 번 더 올 수 있습니다.' });
   }
 
@@ -233,12 +233,12 @@ function keeperDecide_(st) {
       const lines = prot.slice(0, 10).map((x) => '- ' + x.path + ' (' + x.why + ')').join('\n');
       const body = '심판이 믿을 수 없는 판정 파일을 찾아 보호 모드로 들어갔습니다. 새 접수·배정·신호 처리를 멈췄습니다.\n' + lines +
         '\n\nCTRL앱에서 확인하고 배포 계획의 관리자 복구 절차를 따라 주세요.';
-      out.mails.push({ key: out.protectKey, important: true, subject: '[가지 앱] ⚠ 보호 모드', body: body });
-      out.pushes.push({ important: true, title: '가지 앱 보호 모드', message: '판정 파일 ' + prot.length + '개를 믿을 수 없어 새 일을 멈췄습니다. CTRL앱을 확인하세요.', priority: 5 });
+      out.mails.push({ key: out.protectKey, important: true, group: 'protect', subject: '[가지 앱] ⚠ 보호 모드', body: body });
+      out.pushes.push({ important: true, group: 'protect', title: '가지 앱 보호 모드', message: '판정 파일 ' + prot.length + '개를 믿을 수 없어 새 일을 멈췄습니다. CTRL앱을 확인하세요.', priority: 5 });
     }
   } else if (st.prevProtectKey && arbFresh) {
-    out.mails.push({ key: '', important: true, subject: '[가지 앱] 보호 모드 끝남', body: '판정 파일이 바로잡혀 정상으로 돌아왔습니다.' });
-    out.pushes.push({ important: true, title: '가지 앱 보호 모드 끝남', message: '정상으로 돌아왔습니다.', priority: 3 });
+    out.mails.push({ key: '', important: true, group: 'protect', subject: '[가지 앱] 보호 모드 끝남', body: '판정 파일이 바로잡혀 정상으로 돌아왔습니다.' });
+    out.pushes.push({ important: true, group: 'protect', title: '가지 앱 보호 모드 끝남', message: '정상으로 돌아왔습니다.', priority: 3 });
     Object.keys(mailed).forEach((k) => { if (k.indexOf('protect_') === 0) out.forget.push(k); });   // 이 구간의 진입 기록을 지움
   } else if (st.prevProtectKey) {
     out.protectKey = st.prevProtectKey;                   // 심판 기록이 오래됨 — 끝났다고 보지 않음
@@ -267,6 +267,19 @@ function keeperDecide_(st) {
     if (mailed[a.id]) return;
     const kind = String((a.obj || {}).kind || '');
     if (['stale_report', 'confirm_denied'].indexOf(kind) >= 0) return;          // 흔한 알림은 메일로 보내지 않음
+    const o = a.obj || {};
+    if (kind === 'hold_on_long') {               // 읽지 못한 것이 있어 판정을 30분 넘게 미룸 (0o) — 메일 + 푸시
+      const body = '심판이 읽지 못한 파일이 있어 ' + (o.minutes || 30) + '분 넘게 새 판정을 미루고 있습니다.\n'
+        + (Array.isArray(o.unknown) ? o.unknown.slice(0, 10).map((x) => '- ' + x).join('\n') : '')
+        + '\n\n같은 이름 파일(dup:)이면 Drive에서 하나만 남기세요. 읽기 실패가 계속되면 Drive·rclone 상태를 확인하세요. CTRL앱 위쪽 띠에도 보입니다.';
+      out.mails.push({ key: a.id, subject: '[가지 앱] 판정 보류 30분 넘음', body: body });
+      out.pushes.push({ title: '가지 앱 판정 보류', message: '읽지 못한 파일 때문에 30분 넘게 새 일을 미루고 있습니다. CTRL앱을 확인하세요.', priority: 4 });
+      return;
+    }
+    if (kind === 'duplicate_path') {
+      out.mails.push({ key: a.id, subject: '[가지 앱] 같은 이름 파일', body: 'Drive에 같은 이름 파일이 여럿 있습니다: ' + (o.path || '') + '\n하나만 남길 때까지 판정을 미룹니다.' });
+      return;
+    }
     out.mails.push({ key: a.id, subject: '[가지 앱] 알림: ' + kind, body: '심판이 남긴 알림입니다: ' + kind + ' (' + a.id + ')' });
   });
   return out;
@@ -312,11 +325,11 @@ function kpList_(dir, fn) {
 function kpObj_(f) { try { return JSON.parse(f.getBlob().getDataAsString('UTF-8') || 'null'); } catch (e) { return null; } }
 function kpOwner_(f) { try { return f.getOwner().getEmail(); } catch (e) { return ''; } }
 
-/** 수집기가 마지막으로 성공한 시각(ms). last_ok가 기준 — 실행할 때마다 실패해도 멈춤으로 알림 (b18 보충).
- *  last_ok가 없으면 맨 위 time(4.33.0k~)이나 last.time(4.33.0). 모두 없으면 null (b17 X5) */
+/** 수집기 멈춤 감시의 기준 시각(ms). 마지막 성공(last_ok) → 성공한 적이 없으면 연속 실패 시작(fail_since, 4.33.0m~)
+ *  → 옛 형식이면 맨 위 time(4.33.0k~)이나 last.time(4.33.0). 모두 없으면 null (b17 X5, b18 보충, b19 Z5) */
 function kpCollectorAt_(o) {
   if (!o || typeof o !== 'object') return null;
-  const t = o.last_ok || o.time || (o.last && o.last.time);
+  const t = o.last_ok || o.fail_since || o.time || (o.last && o.last.time);
   const ms = t ? Date.parse(t) : NaN;
   return isNaN(ms) ? null : ms;
 }
@@ -401,8 +414,8 @@ function keeper_() {
   const mailed = (st.mailed || []).filter((k) => !forget[k]).slice(-200);
   d.mails.forEach((m) => { if (m.key) mailed.push(m.key); });          // 넣은 것은 '보냄'으로 — 결정이 같은 알림을 또 만들지 않음
   const sent = kpSendOutbox_(c, (Array.isArray(prev.outbox) ? prev.outbox : [])
-    .concat(d.mails.map((m) => ({ t: 'mail', key: m.key || '', important: !!m.important, subject: m.subject, body: m.body, tries: 0 })))
-    .concat(d.pushes.map((p) => ({ t: 'push', important: !!p.important, title: p.title, message: p.message, priority: p.priority, tries: 0 }))));
+    .concat(d.mails.map((m) => ({ t: 'mail', key: m.key || '', important: !!m.important, group: m.group || '', subject: m.subject, body: m.body, tries: 0 })))
+    .concat(d.pushes.map((p) => ({ t: 'push', important: !!p.important, group: p.group || '', title: p.title, message: p.message, priority: p.priority, tries: 0 }))));
   const outbox = sent.left;
   if (sent.dropped.length) {             // 넘쳐서 버린 알림: '보냄' 이력에서 지워 상태가 남아 있으면 다시 만들게 함 + 요약 한 통 (Y6)
     const gone = {};
@@ -454,6 +467,17 @@ function kagglePush_(c, admin, reason) {
 /** 보낼 목록을 보냄 → { left: 아직 못 보낸 것(keeper.json에 남김), dropped: 상한을 넘어 버린 것 }.
  *  주제 이름·메일 주소는 목록에 넣지 않음. 중요한 알림(보호 모드)은 상한과 상관없이 남김 (Y6) */
 function kpSendOutbox_(c, items) {
+  // 같은 무리(group)의 중요 알림은 '지금 상태' 하나만 — 못 보낸 사이 바뀐 횟수는 본문에 적음 (b19 보충)
+  const lastOf = {}, changes = {};
+  items.forEach((x, i) => { if (x && x.important && x.group) { const k = x.t + ':' + x.group; lastOf[k] = i; changes[k] = (changes[k] || 0) + Number(x.n || 1); } });
+  items = items.filter((x, i) => !(x && x.important && x.group) || lastOf[x.t + ':' + x.group] === i).map((x) => {
+    if (!(x && x.important && x.group)) return x;
+    const n = changes[x.t + ':' + x.group];
+    if (n <= 1 || n === Number(x.n || 1)) return x;
+    const note = ' (보내지 못한 사이 ' + n + '번 바뀜 — 이것이 지금 상태)';
+    return Object.assign({}, x, { n: n }, x.t === 'mail' ? { body: String(x.body || '').replace(/ \(보내지 못한 사이 \d+번 바뀜 — 이것이 지금 상태\)$/, '') + note }
+      : { message: String(x.message || '').replace(/ \(보내지 못한 사이 \d+번 바뀜 — 이것이 지금 상태\)$/, '') + note });
+  });
   const left = [];
   items.forEach((x) => {
     if (!x || typeof x !== 'object') return;

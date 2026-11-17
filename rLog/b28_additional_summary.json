@@ -1,0 +1,32 @@
+{
+  "guard_probe": [
+    "{\"case\": \"Path.touch\", \"blocked\": false}",
+    "{\"case\": \"tempfile\", \"blocked\": true, \"error\": \"AnalysisRefused\", \"message\": \"공유 폴더에 쓸 수 없습니다 (열기(쓰기): not_permitted:shared) — 결과는 OUT(분석 폴더)에, 바꾸는 일은 request(...)로\"}",
+    "{\"case\": \"PIL.Image.save\", \"blocked\": true, \"error\": \"AnalysisRefused\", \"message\": \"공유 폴더에 쓸 수 없습니다 (열기(쓰기): not_permitted:shared/image.png) — 결과는 OUT(분석 폴더)에, 바꾸는 일은 request(...)로\"}",
+    "{\"case\": \"sqlite3\", \"blocked\": false}",
+    "{\"case\": \"np.save\", \"blocked\": true, \"error\": \"AnalysisRefused\", \"message\": \"공유 폴더에 쓸 수 없습니다 (열기(쓰기): not_permitted:shared/array.npy) — 결과는 OUT(분석 폴더)에, 바꾸는 일은 request(...)로\"}",
+    "{\"case\": \"ZipFile_w\", \"blocked\": true, \"error\": \"AnalysisRefused\", \"message\": \"공유 폴더에 쓸 수 없습니다 (열기(쓰기): not_permitted:shared/out.zip) — 결과는 OUT(분석 폴더)에, 바꾸는 일은 request(...)로\"}",
+    "{\"case\": \"os.replace_keywords\", \"blocked\": false}",
+    "{\"case\": \"shutil.move_keywords\", \"blocked\": true, \"error\": \"AnalysisRefused\", \"message\": \"공유 폴더에 쓸 수 없습니다 (os.rename: not_permitted:shared/moved.txt) — 결과는 OUT(분석 폴더)에, 바꾸는 일은 request(...)로\"}",
+    "{\"case\": \"cell00_reload_start\", \"blocked\": true, \"error\": \"AnalysisRefused\", \"message\": \"공유 폴더에 쓸 수 없습니다 (os.mkdir: not_permitted:analysis/M1/261117_1102_0202obiz) — 결과는 OUT(분석 폴더)에, 바꾸는 일은\"}",
+    "{\"case\": \"failed_start\", \"blocked\": true, \"error\": \"AnalysisRefused\", \"message\": \"OPERATOR(사람 ID, 예 M1)를 0번 셀에 적으세요 — 분석 폴더 이름이 됩니다\"}",
+    "{\"case\": \"write_after_failed_start\", \"blocked\": false}",
+    "{\"case\": \"unlink_symlink_entry\", \"blocked\": false}",
+    "{\"case\": \"symlink_alias\", \"blocked\": true, \"error\": \"AnalysisRefused\", \"message\": \"공유 폴더에 쓸 수 없습니다 (열기(쓰기): not_permitted:shared/linked.txt) — 결과는 OUT(분석 폴더)에, 바꾸는 일은 request(...)로\"}"
+  ],
+  "supervisor_probe": [
+    "{\"error\": \"RuntimeError\", \"status\": {\"child_rc\": 3, \"clean\": true, \"left\": [], \"stopped\": false}, \"grandchild_live\": true}"
+  ],
+  "identity_probe": [
+    "{\"owner\": \"b@x\", \"signal_result\": {\"sid\": \"cancel__anad9e5c99111170155e7iu__179488053801\", \"seq\": 1, \"result\": \"done\", \"effects\": {\"mark\": \"applied\"}, \"at\": 1794880538.9674227, \"by_session\": \"MASTER\", \"by_epoch\": 1}, \"intake_requester\": \"M1\"}",
+    "{\"owner\": \"unregistered@x\", \"signal_result\": {\"sid\": \"cancel__anad9e5c99111170155e7iu__179488053802\", \"result\": \"rejected\", \"reason\": \"not_registered\", \"at\": 1794880538.9695919, \"by_session\": \"MASTER\", \"by_epoch\": 1}, \"intake_requester\": \"M1\"}"
+  ],
+  "import_probe": [
+    "{\"import\": \"success\", \"shared_bytecode_files\": [\"scripts/__pycache__/b28_fresh_module.cpython-314.pyc\"]}"
+  ],
+  "prior_boundaries_compat": [
+    "{\"mode\": \"lost\", \"error\": \"AuthorityLost\", \"grandchild_live\": false, \"status\": {\"child_rc\": -15, \"clean\": true, \"left\": [], \"stopped\": true}}",
+    "{\"mode\": \"fail\", \"error\": \"RuntimeError\", \"grandchild_live\": false, \"status\": {\"child_rc\": 3, \"clean\": true, \"left\": [], \"stopped\": false}}",
+    "{\"mode\": \"zombie\", \"error\": \"AuthorityLost\", \"grandchild_live\": false, \"status\": {\"child_rc\": -15, \"clean\": true, \"left\": [], \"stopped\": true}}"
+  ]
+}

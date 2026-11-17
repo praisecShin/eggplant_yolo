@@ -329,6 +329,36 @@ for b in meta_bad[:5]:
     print("   ↳", b)
 check(meta_runs > 0 and not meta_bad, f"계획의 admin·requester만 바뀌면 보호 모드이거나 효과가 원래와 같음 (Y1) — 위반 {len(meta_bad)}건")
 
+# 읽지 못한(같은 이름 여럿 포함) 파일: 그 경로에 쓰지 않음, 정지 보류를 모르면 새 배정 없음 (b20 Q1)
+hide_runs, hide_bad = 0, []
+hrng = random.Random(int(os.environ.get("FUZZ_SEED", "4330")) + 1)
+idxs = hrng.sample(range(len(REC)), min(len(REC), int(os.environ.get("FUZZ_HIDE", "600"))))
+for i in idxs:
+    cfg, inp = REC[i]
+    cands = [p for p in inp.files if A.judgement_kind(p) or p.startswith(A.P_SIGNALS) or "/REQ_" in "/" + p]
+    if not cands:
+        continue
+    for _ in range(3):
+        hid = set(hrng.sample(cands, min(len(cands), hrng.choice([1, 1, 2]))))
+        files = {p: r for p, r in inp.files.items() if p not in hid}
+        unk = set(inp.unknown) | {"file:" + p for p in hid} | {"dup:" + p for p in hid if hrng.random() < 0.5}
+        try:
+            res = A.decide_round(cfg, Inputs(now=inp.now, files=files, list_started_at=inp.list_started_at, unknown=unk,
+                                             kernel_status=inp.kernel_status, import_pending=inp.import_pending, waiting=inp.waiting))
+        except Exception as e:
+            hide_bad.append((sorted(hid), "예외 " + type(e).__name__)); continue
+        hide_runs += 1
+        # 0o (11/16 결정 A): 읽지 못한 것이 하나라도 있으면 그 회차는 판정하지 않음 — 회차 기록·알림만
+        other = [w.path for w in res.writes if w.path != A.P_ARBITER and not w.path.startswith(A.P_ALERT)]
+        if res.acting and other:
+            hide_bad.append((sorted(hid), "모름이 있는데 판정을 씀 " + other[0])); continue
+        if res.acting and "state" not in unk and not any(w.path == A.P_ARBITER for w in res.writes):   # arb/ 목록 모름이면 회차 기록도 안 씀
+            hide_bad.append((sorted(hid), "판정 보류 회차 기록이 없음"))
+print(f"   파일 숨기기(모름) {hide_runs}회")
+for b in hide_bad[:5]:
+    print("   ↳", b)
+check(hide_runs > 0 and not hide_bad, f"모르는 파일이 있으면 그 회차는 회차 기록·알림만 씀 (판정 보류, 0o) — 위반 {len(hide_bad)}건")
+
 # 고정 시험: 끝나지 않은 정지 계획의 효과 일부 삭제 (b17 X1)
 stop_cases = [(i, p) for i, (cfg, inp) in enumerate(REC) for p in inp.files
               if p.startswith(A.P_PLAN + "stop__") and (A.P_DONE + p[len(A.P_PLAN):]) not in inp.files]

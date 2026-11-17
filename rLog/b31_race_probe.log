@@ -1,0 +1,4 @@
+{"case": "active_lookup_write", "wrote": true, "active_guard_enabled": true}
+{"case": "active_lookup_transport", "sent": true, "active_guard_enabled": true}
+{"case": "legacy_uninstall_after_switch", "shared_write_succeeded": true, "active_is_new": true, "new_enabled": true}
+{"case": "boot_parent_symlink", "actual_output": "CVAT_UpLoader/261117_1428_05280ehp", "protected_files": ["CVAT_UpLoader/261117_1428_05280ehp", "CVAT_UpLoader/261117_1428_05280ehp/_session.json"]}

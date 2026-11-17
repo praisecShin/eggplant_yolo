@@ -1,0 +1,119 @@
+[
+  {
+    "name": "cells",
+    "command": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_cells_433.py",
+      "drive"
+    ],
+    "rc": 1,
+    "seconds": 1.2
+  },
+  {
+    "name": "hosts",
+    "command": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_hosts_433.py",
+      "drive"
+    ],
+    "rc": 0,
+    "seconds": 17.5
+  },
+  {
+    "name": "handlers",
+    "command": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_handlers_433.py",
+      "drive"
+    ],
+    "rc": 0,
+    "seconds": 2.2
+  },
+  {
+    "name": "e2e",
+    "command": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_e2e_433.py",
+      "drive"
+    ],
+    "rc": 0,
+    "seconds": 0.9
+  },
+  {
+    "name": "master",
+    "command": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_master_433.py",
+      "drive"
+    ],
+    "rc": 0,
+    "seconds": 1.6
+  },
+  {
+    "name": "arbiter",
+    "command": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_arbiter_433.py",
+      "drive"
+    ],
+    "rc": 0,
+    "seconds": 1.5
+  },
+  {
+    "name": "access",
+    "command": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_access_433.py",
+      "drive"
+    ],
+    "rc": 0,
+    "seconds": 0.1
+  },
+  {
+    "name": "master_main",
+    "command": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_master_main_433.py",
+      "drive"
+    ],
+    "rc": 0,
+    "seconds": 21.1
+  },
+  {
+    "name": "fuzz",
+    "command": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_fuzz_433.py",
+      "drive"
+    ],
+    "rc": 0,
+    "seconds": 12.9
+  },
+  {
+    "name": "guard_original",
+    "command": [
+      "/tmp/b24_venv/bin/python",
+      "rLog/b28_guard_probe.py"
+    ],
+    "rc": 0,
+    "seconds": 0.5
+  },
+  {
+    "name": "supervisor_original",
+    "command": [
+      "/tmp/b24_venv/bin/python",
+      "rLog/b28_supervisor_probe.py"
+    ],
+    "rc": 1,
+    "seconds": 0.4
+  },
+  {
+    "name": "import_original",
+    "command": [
+      "/tmp/b24_venv/bin/python",
+      "rLog/b28_import_probe.py"
+    ],
+    "rc": 0,
+    "seconds": 0.3
+  }
+]

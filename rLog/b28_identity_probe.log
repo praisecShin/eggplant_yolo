@@ -1,0 +1,2 @@
+{"owner": "b@x", "signal_result": {"sid": "cancel__anad9e5c99111170155e7iu__179488053801", "seq": 1, "result": "done", "effects": {"mark": "applied"}, "at": 1794880538.9674227, "by_session": "MASTER", "by_epoch": 1}, "intake_requester": "M1"}
+{"owner": "unregistered@x", "signal_result": {"sid": "cancel__anad9e5c99111170155e7iu__179488053802", "result": "rejected", "reason": "not_registered", "at": 1794880538.9695919, "by_session": "MASTER", "by_epoch": 1}, "intake_requester": "M1"}

@@ -1,0 +1,26 @@
+{
+  "process_boundaries": [
+    "{\"case\": \"setsid\", \"leader_pgid\": 5, \"detached_pgid\": 6, \"detached_live\": true, \"leader_group_alive\": false}",
+    "{\"case\": \"zombie_only\", \"state\": \"Z\", \"group_alive\": true, \"error\": \"RuntimeError:학습 프로세스 묶음을 끝내지 못함 — 수동 확인 필요\", \"seconds\": 10.2}",
+    "{\"case\": \"permission_zero\", \"group_alive\": true}",
+    "{\"case\": \"permission_terminate\", \"exception\": \"PermissionError\"}"
+  ],
+  "cleanup_flow": [
+    "{\"results\": [{\"rid\": \"tr\", \"task\": \"run\", \"job\": \"train_3668e7853bdde66f\", \"result\": \"failed:RuntimeError\", \"decision\": \"d3f4222ac31c7e1aa\", \"session\": \"GPU\", \"at\": 1762995800, \"by_session\": \"MS1\", \"by_epoch\": 1}], \"locks\": [{\"start_version\": null, \"start_test_version\": null, \"start_dataset_version\": \"mgmt_58983cec96c3752a\", \"run\": \"train_3668e7853bdde66f\", \"rid\": \"tr\", \"model\": \"m\", \"session\": \"GPU\", \"decision\": \"d3f4222ac31c7e1aa\", \"epoch\": 1, \"gen\": 2, \"state\": \"done\", \"at\": 1762995780, \"start_adopted_gen\": 0, \"compat\": \"ok\", \"artifact\": {\"type\": \"model\", \"name\": \"m\"}, \"ended_at\": 1762995800, \"by_session\": \"MS1\", \"by_epoch\": 1}], \"executor_output\": [{\"report\": \"done_job\", \"result\": \"failed:RuntimeError\"}], \"request_files\": [\"requests/REQ_tr__train__failed.json\"]}"
+  ],
+  "permission_override": [
+    "{\"raised\": \"PermissionError\", \"original_context\": \"AuthorityLost\"}"
+  ],
+  "model_boundaries": [
+    "{\"case\": \"metadata\", \"train\": {\"metrics\": [1]}, \"error\": \"AttributeError\", \"skipped\": []}",
+    "{\"case\": \"metadata\", \"train\": {\"args\": [1]}, \"error\": \"AttributeError\", \"skipped\": []}",
+    "{\"case\": \"metadata\", \"train\": [], \"rows\": [{\"name\": \"bad\", \"version\": \"v\", \"map5095\": null, \"map50\": null, \"classes\": null, \"imgsz\": null, \"time\": \"\"}, {\"name\": \"good\", \"version\": \"v\", \"map5095\": null, \"map50\": null, \"classes\": null, \"imgsz\": null, \"time\": \"\"}], \"skipped\": []}",
+    "{\"case\": \"legacy_adopted\", \"models\": [\"good\", \"legacy\"], \"skipped\": []}",
+    "{\"case\": \"legacy_web\", \"error\": \"TypeError\", \"message\": \"unsupported operand type(s) for /: 'PosixPath' and 'list'\"}"
+  ],
+  "write_isolation": [
+    "{\"source\": \"/tmp/b24_sources/unpacked/ultralytics/utils/__init__.py\", \"sha256\": \"33647de7592615e51485e9c577c92bdb31670ecf373b8e333aa3448df92dd0fc\"}",
+    "{\"same_settings_path\": true, \"outside_both_workdirs\": true, \"final_shared_settings\": {\"last_run\": \"B\"}}"
+  ],
+  "source_files_changed": []
+}

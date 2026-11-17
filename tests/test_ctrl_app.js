@@ -127,5 +127,13 @@ setTimeout(async () => {
   delete files[dupRoot];
   d.querySelector('#reload').click(); await new Promise((r) => setTimeout(r, 300));
   ok(!d.querySelector('#act-stop').disabled, '하나만 남으면 다시 열림');
+  // 0o: 판정 보류 띠
+  { const Af = Object.values(files).find((f) => f.title === 'ARBITER.json');
+    Af.content.hold_on = ['file:arb/holds/stop__M1__1.json', 'dup:requests/REQ_x__track__pending.json']; Af.content.hold_on_since = NOW - 120; Af.content.at = NOW - 5;
+    d.querySelector('#reload').click(); await new Promise((r) => setTimeout(r, 300));
+    ok(!d.querySelector('#holdon').hidden && /판정 보류/.test(d.querySelector('#holdon').textContent) && /같은 이름 여럿/.test(d.querySelector('#holdon').textContent)
+      && /판정 보류/.test(d.querySelector('#board').textContent), '판정 보류 띠: 읽지 못한 것·같은 이름 파일 안내, 상태 판에 판정 보류 (0o)');
+    delete Af.content.hold_on; d.querySelector('#reload').click(); await new Promise((r) => setTimeout(r, 300));
+    ok(d.querySelector('#holdon').hidden, '다 읽히면 판정 보류 띠가 사라짐'); }
   console.log(FAIL ? 'RESULT False' : 'RESULT True'); process.exit(FAIL ? 1 : 0);
 }, 800);

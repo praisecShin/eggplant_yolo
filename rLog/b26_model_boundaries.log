@@ -1,0 +1,5 @@
+{"case": "metadata", "train": {"metrics": [1]}, "error": "AttributeError", "skipped": []}
+{"case": "metadata", "train": {"args": [1]}, "error": "AttributeError", "skipped": []}
+{"case": "metadata", "train": [], "rows": [{"name": "bad", "version": "v", "map5095": null, "map50": null, "classes": null, "imgsz": null, "time": ""}, {"name": "good", "version": "v", "map5095": null, "map50": null, "classes": null, "imgsz": null, "time": ""}], "skipped": []}
+{"case": "legacy_adopted", "models": ["good", "legacy"], "skipped": []}
+{"case": "legacy_web", "error": "TypeError", "message": "unsupported operand type(s) for /: 'PosixPath' and 'list'"}

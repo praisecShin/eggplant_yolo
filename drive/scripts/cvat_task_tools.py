@@ -1542,7 +1542,7 @@ def check_video_alignment(task, video_path, offset=0, decoder="pyav", probes=(0,
 
 def auto_annotate_frames(task, function_file, model, imgsz=1920, device="0", conf=0.3, tile=False,
                          quality="original", frames=None, batch=50, log=print, prefetch=4, replace=False, backup=None,
-                         video=None, video_offset=0, decoder="pyav"):
+                         video=None, video_offset=0, decoder="pyav", collect_only=False):
     """cvat-cli task auto-annotate는 영상으로 만든 TASK에서
     'Chunk-based media access is only supported for … image sets'로 멈춘다.
     이 함수는 TASK 프레임을 하나씩 받아(task.get_frame) 같은 함수 파일(cvat_yolo_function.py)로 탐지하고
@@ -1550,8 +1550,12 @@ def auto_annotate_frames(task, function_file, model, imgsz=1920, device="0", con
     replace=True: 전체 프레임을 먼저 모두 탐지한 뒤 기존 라벨을 지우고 올림 (교체, 실패하면 backup으로 되돌림).
     video=원본 영상 경로: 프레임을 CVAT에서 받지 않고 원본 영상에서 직접 읽음 (원본 화질, 서버 압축 없음).
       TASK 프레임 k ↔ 영상 프레임 start + k*step - video_offset (video_offset = 20번 셀이 알려 주는 보정값)
+    collect_only=True (v4.33 2b-3): CVAT에 아무것도 쓰지 않고 탐지 결과만 'shapes'(라벨 이름 포함 dict 목록)로 돌려줌 —
+      실행기의 준비 단계(로컬에서 끝까지)에서 쓰고, 올리기는 승인 뒤 확정 단계가 따로 함.
     반환: {'frames': 처리 프레임 수, 'boxes': 올린 박스 수, 'per_label': {라벨: 수}, 'skipped_labels': {...},
            'replaced': 지운 기존 라벨 수(교체일 때)}"""
+    if collect_only and replace:
+        raise ValueError("collect_only와 replace는 함께 쓰지 않음 (교체는 확정 단계가 함)")
     import importlib.util
     import time
     from types import SimpleNamespace
@@ -1577,7 +1581,7 @@ def auto_annotate_frames(task, function_file, model, imgsz=1920, device="0", con
     def flush():
         nonlocal pending
         if pending:
-            if replace:                               # 교체: 다 모은 뒤 한꺼번에 (탐지 도중 실패해도 기존 라벨은 그대로)
+            if replace or collect_only:              # 교체: 다 모은 뒤 한꺼번에 (탐지 도중 실패해도 기존 라벨은 그대로)
                 collected.extend(pending)
             else:
                 task.update_annotations(models.PatchedLabeledDataRequest(shapes=pending),
@@ -1689,6 +1693,12 @@ def auto_annotate_frames(task, function_file, model, imgsz=1920, device="0", con
     finally:
         pool.shutdown(wait=False, cancel_futures=True)
     replaced = None
+    if collect_only:
+        id2name = {v: k for k, v in task_ids.items()}
+        shapes = [{"type": "rectangle", "frame": int(s.frame), "label": id2name.get(s.label_id, str(s.label_id)),
+                   "points": [float(v) for v in s.points], "occluded": bool(getattr(s, "occluded", False))} for s in collected]
+        return {"frames": len(todo) - len(missing), "boxes": total, "per_label": per_label, "skipped_labels": skipped,
+                "quality": state["q"], "replaced": None, "missing_frames": missing, "shapes": shapes}
     if replace:
         log(f"  탐지 끝: 박스 {len(collected)}개 → 기존 라벨을 지우고 올림 (교체)")
         replaced = replace_annotations(task, write_all, backup, log=log)

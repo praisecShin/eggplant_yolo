@@ -1,0 +1,42 @@
+[
+  {
+    "name": "hosts",
+    "command": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_hosts_433.py",
+      "drive"
+    ],
+    "rc": 0,
+    "seconds": 13.0
+  },
+  {
+    "name": "handlers",
+    "command": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_handlers_433.py",
+      "drive"
+    ],
+    "rc": 0,
+    "seconds": 2.1
+  },
+  {
+    "name": "e2e",
+    "command": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_e2e_433.py",
+      "drive"
+    ],
+    "rc": 0,
+    "seconds": 0.8
+  },
+  {
+    "name": "master",
+    "command": [
+      "/tmp/b24_venv/bin/python",
+      "tests/test_master_433.py",
+      "drive"
+    ],
+    "rc": 0,
+    "seconds": 1.6
+  }
+]

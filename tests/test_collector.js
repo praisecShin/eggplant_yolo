@@ -62,8 +62,8 @@ ok(!/GITHUB|github|gpu_queue|STOP_MASTER|STOP_GPU|dispatcher\.json|requests\/ass
 // 첫 실행: 스냅숏만
 TASKS = [task(11, 'eggplant_G6_261026_1_4_uld'), task(12, 'eggplant_G5_261026_2_1_uld')];
 let r = ctx.collect();
-ok(r.ok && r.first_run && ROOT.get('status', 'cvat_tasks.json').count === 2 && ROOT.get('status', 'collector.json').version === '4.33.0l',
-  '첫 실행: TASK 스냅숏과 생존 신호(collector.json, 판 4.33.0l)');
+ok(r.ok && r.first_run && ROOT.get('status', 'cvat_tasks.json').count === 2 && ROOT.get('status', 'collector.json').version === '4.33.0n',
+  '첫 실행: TASK 스냅숏과 생존 신호(collector.json, 판 4.33.0n)');
 ok(FETCHES.every((f) => f.method === 'get'), 'CVAT에는 읽기(GET)만');
 
 // 다음 실행 (11/12 규칙): _uld로 올라옴 → backup(원본 없을 때), 검토 단계로 바뀜 → export, _AA는 아무것도 안 함
@@ -252,6 +252,70 @@ SEARCH_LAG = true; NOW += 300000; r = ctx.collect();
 ok(reqFiles().length === 1 && r.auto.waiting === 1 && r.auto.pending === 1, '검색이 비어도 시도 뒤 10분 안에는 다시 만들지 않고 기다림 (Y4)');
 SEARCH_LAG = false; NOW += 400000; r = ctx.collect();
 ok(reqFiles().length === 1 && r.auto.pending === 0 && r.auto.requests[0].existed, '검색이 되면 있는 파일을 찾아 장부만 마저 씀 — 중복 없음 (Y4)');
+
+// ══ b19 (0m)
+// Z2: 해석 못 하는 시각 → 형태 오류로 멈춤 (다시 만들지 않음)
+for (const [desc, edit] of [['시도 시각이 날짜가 아님', (b) => { b.attempt_at = 'broken'; }], ['묶음 시각 없음', (b) => { delete b.at; }]]) {
+  setup2();
+  TASKS = [task(11, 'eggplant_G6_261026_1_4_vf', '2026-11-15T03:00:00Z')];
+  FAIL_ONCE.push('REQ_'); ctx.collect();                       // 사건·묶음은 남고 요청 파일은 없음
+  const pj = ROOT.get('status', 'auto_pending.json'); edit(Object.values(pj.batches)[0]);
+  ROOT.sub('status').files.find((f) => f.name === 'auto_pending.json').text = JSON.stringify(pj);
+  NOW += 60000; let th = null; try { ctx.collect(); } catch (e) { th = String(e.message); }
+  ok(th && /형태가 틀림 \(batch_(attempt|at):/.test(th) && !reqFiles().length, `보낼 목록의 ${desc} → 수집 실패, 요청을 만들지 않음 (Z2)`);
+}
+// Z3: 기다리던 옛 묶음이 늦게 발행돼도 장부의 최신 기록을 되돌리지 않음
+setup2();
+TASKS = [task(11, 'eggplant_G6_261026_1_4_vf', '2026-11-15T01:00:00Z')];
+FAIL_ONCE.push('REQ_'); ctx.collect();                         // 옛 묶음: 시도함만 남음
+const oldB = Object.values(ROOT.get('status', 'auto_pending.json').batches)[0];
+ok(oldB && oldB.attempt_at && !oldB.file_id, '(준비) 옛 묶음은 시도 기록만 남음');
+NOW += 60000; TASKS = [task(11, 'eggplant_G6_261026_1_4_vfdf', '2026-11-15T02:00:00Z')];
+SEARCH_LAG = true; r = ctx.collect();
+let L = ROOT.get('status', 'auto_requests.json').items['export:11'];
+ok(r.auto.waiting === 1 && L.updated === '2026-11-15T02:00:00Z', '옛 묶음은 기다리고 새 묶음이 먼저 발행 — 장부는 _vfdf');
+NOW += 700000; r = ctx.collect(); SEARCH_LAG = false;
+L = ROOT.get('status', 'auto_requests.json').items['export:11'];
+ok(L.updated === '2026-11-15T02:00:00Z' && L.name.endsWith('_vfdf') && L.history.length === 2 && r.auto.pending === 0,
+  '옛 묶음이 늦게 발행돼도 장부의 최신 기록(_vfdf)은 그대로, 발행 이력만 더함 (Z3)');
+// Z5: 생존 기록에 연속 실패 시작 시각
+fresh(); ({ ctx } = makeCtx(false)); delete props.CVAT_TOKEN;
+try { ctx.collect(); } catch (e) { /* 설정 오류 */ }
+const h1 = ROOT.get('status', 'collector.json'); NOW += 600000;
+try { ctx.collect(); } catch (e) { /* */ }
+const h2 = ROOT.get('status', 'collector.json');
+ok(h1.ok === false && !h2.last_ok && h2.fail_since === h1.time && h2.time !== h1.time,
+  '한 번도 성공하지 못한 채 계속 실패하면 fail_since는 첫 실패 시각으로 고정 (Z5)');
+fs.writeFileSync('/tmp/collector_hb_never_ok.json', JSON.stringify(h2));
+props.CVAT_TOKEN = 'tok'; NOW += 600000; TASKS = []; ctx.collect();
+ok(ROOT.get('status', 'collector.json').fail_since === null, '성공하면 fail_since를 지움');
+
+// ══ b20 (0n)
+// Q3: 표기가 다른 시각도 숫자로 비교 — 소수초 있는 최신을 옛것이 덮지 않음
+setup2();
+TASKS = [task(11, 'eggplant_G6_261026_1_4_vf', '2026-11-15T03:00:00Z')];
+FAIL_ONCE.push('REQ_'); ctx.collect();
+NOW += 60000; TASKS = [task(11, 'eggplant_G6_261026_1_4_vfdf', '2026-11-15T03:00:00.500Z')];
+SEARCH_LAG = true; ctx.collect(); NOW += 700000; ctx.collect(); SEARCH_LAG = false;
+let LQ = ROOT.get('status', 'auto_requests.json').items['export:11'];
+ok(LQ.updated === '2026-11-15T03:00:00.500Z' && LQ.name.endsWith('_vfdf'), '소수초가 붙은 최신(03:00:00.500Z)을 옛 사건(03:00:00Z)이 덮지 않음 (Q3)');
+ok(vm.runInContext("latestPerTask_([{id:1,updated:'2026-11-15T00:00:00.500Z',at:'2026-11-15T01:00:00Z',name:'new'},{id:1,updated:'2026-11-15T09:00:00+09:00',at:'2026-11-15T02:00:00Z',name:'old'}])[0].name", ctx) === 'new',
+  '시간대 표기가 달라도(+09:00) 실제 시각으로 최신을 고름 (Q3)');
+// Q4: 최신이 '원본 있음으로 건너뜀'이어도 옛 요청이 덮지 않음
+fresh(); ({ ctx } = makeCtx(false));
+TASKS = [task(11, 'eggplant_G6_261026_1_4')]; ctx.collect(); NOW += 600000;
+TASKS = [task(11, 'eggplant_G6_261026_1_4_uld', '2026-11-15T03:00:00Z')];
+FAIL_ONCE.push('REQ_'); ctx.collect();                                   // 옛 백업 묶음: 시도만
+ROOT.put('videos/G6', 'eggplant_G6_261026_1_4.mp4', 'x');
+NOW += 60000; TASKS = [task(11, 'eggplant_G6_261026_1_4', '2026-11-15T03:30:00Z')]; ctx.collect();
+NOW += 60000; TASKS = [task(11, 'eggplant_G6_261026_1_4_uld', '2026-11-15T04:00:00Z')];
+SEARCH_LAG = true; ctx.collect();
+const LB = ROOT.get('status', 'auto_requests.json').items['backup:11'];
+ok(LB && LB.skipped === 'original_exists' && LB.updated === '2026-11-15T04:00:00Z', '(준비) 최신 기록은 04:00 원본 있음으로 건너뜀');
+NOW += 700000; ctx.collect(); SEARCH_LAG = false;
+const LB2 = ROOT.get('status', 'auto_requests.json').items['backup:11'];
+ok(LB2.skipped === 'original_exists' && LB2.updated === '2026-11-15T04:00:00Z' && LB2.history.length >= 2,
+  "최신이 '원본 있음으로 건너뜀'이어도 늦게 발행된 옛 요청은 이력에만 더함 (Q4)");
 
 // 심판의 요청 이름 규칙과 맞는지 (Python arbiter.parse_req_name과 같은 정규식)
 ok(/^REQ_([0-9A-Za-z_.-]+?)__([a-z0-9_]+)__pending\.json$/.test('REQ_20261115_110000_ga1x__export__pending.json'), '요청 이름 규칙');

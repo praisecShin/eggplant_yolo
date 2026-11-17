@@ -1,0 +1,12 @@
+{"case": "restart_thread_gap", "shared_write_succeeded": true}
+{"case": "switch_person", "success": false, "error": "AnalysisRefused('공유 폴더에 쓸 수 없습니다 (os.mkdir: not_permitted:analysis/M2) — 결과는 OUT(분석 폴더)에, 바꾸는 일은 request(...)로')"}
+{"case": "same_day_last_upload", "selected": {"result_file": "new.xml", "run_time": "2026-11-17T10:00:00+09:00", "model": "", "kind": "track", "source": "v4.33", "before_file": "", "status": "업로드 완료"}, "expected": "old.xml"}
+{"case": "cell11_video_string", "error": "AttributeError(\"'str' object has no attribute 'name'\")"}
+TASK 줄을 자세히 보려면 AC_VIEW = 'tasks', AC_JOB = '<job_id>'
+작업 0개
+Empty DataFrame
+Columns: []
+Index: []
+{"case": "cell26_jobs", "rows": 0}
+{"case": "cell26_tasks", "error": "KeyError(\"['boxes_before', 'boxes', 'by_label', 'frames', 'task_updated'] not in index\")"}
+{"case": "cell26_history", "error": "KeyError('boxes')"}

@@ -23,13 +23,14 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-VERSION = "4.33.0l"
+VERSION = "4.33.0z10"
 
 # ---------------------------------------------------------------- 경로
 ARB = "arb/"
 P_GRANT = "jobs/ARBITER_GRANT.json"
 P_ARBITER = ARB + "ARBITER.json"
 P_HANDOVER = ARB + "handover/"
+HOLD_ON_ALERT_SEC = 1800       # 판정 보류가 30분 넘게 이어지면 알림 (b21 P4)
 P_INTAKE = ARB + "intake/"
 P_RESULTS = ARB + "results/"
 P_ASSIGN = ARB + "assign/"
@@ -55,6 +56,9 @@ VERSION_FILES_OF = {"model": "runs/{n}/v/{run}/_files.json", "dataset": "dataset
 
 # ---------------------------------------------------------------- 설정
 HB_STALE = 180
+# 처리기 진행 한도 (2b-1, 필수): 실행기가 일하는 중(busy) 진행 시각이 이만큼 멈추면 '멈춘 것 같음' → 끊긴 것과 같이 다룸
+# (확정 승인 뒤면 격리 → 확인 필요, 준비 단계면 다시 발급, 실행형이면 확인 필요). 처리기는 이보다 자주 ctx.progress()를 부름
+STALL_SEC = {"task": 1800, "read": 1800, "agg": 1800, "mgmt": 3600, "create": 3600, "train": 3 * 3600}
 CHOICE_WAIT = 900
 CHUNK_TASKS = 5
 DAY_START, DAY_END = 8, 19
@@ -140,6 +144,7 @@ class Result:
     acting: bool = True
     protect: List[dict] = field(default_factory=list)          # 보호 모드 이유 (믿을 수 없는 판정 파일)
     internal_unknown: List[str] = field(default_factory=list)  # 판정 함수가 안에서 '모름'으로 돌린 파일 (형태 오류 등)
+    hold_on: List[str] = field(default_factory=list)           # 판정 보류 이유 (읽지 못한 것, 0o)
 
 
 # ---------------------------------------------------------------- 도우미
@@ -219,8 +224,8 @@ def _numlike(x) -> bool:
 _STR, _ID, _INT, _NUM, _BOOL, _SCALAR = "str", "id", "int", "num", "bool", "scalar"
 _LSTR, _DICT, _CC = "list_str", "dict", "current_change"     # 문자열 목록 / 객체 / 채택 바꾸기 묶음 (U1)
 SCHEMA = {
-    "worker": {"session": _STR, "fp": _STR, "hb": _NUM, "stopping": _BOOL, "version": _SCALAR},
-    "request": {"name": _STR, "model": _STR, "dataset": _STR, "mode": _STR, "origin_rid": _STR, "key": _STR,
+    "worker": {"session": _STR, "fp": _STR, "hb": _NUM, "stopping": _BOOL, "version": _SCALAR, "busy": _DICT},
+    "request": {"params": _DICT, "name": _STR, "model": _STR, "dataset": _STR, "mode": _STR, "origin_rid": _STR, "origin_job": _STR, "key": _STR,
                 "server": _STR, "version": _SCALAR, "by_signal": _STR, "by_session": _STR, "by_epoch": _INT},
     "ask": {"type": _STR, "rid": _STR, "job": _STR, "decision": _STR, "session": _STR, "task": _ID, "lane": _STR,
             "run": _STR, "name": _STR, "key": _STR, "assign": _STR, "type_": _STR, "model": _STR,
@@ -302,7 +307,7 @@ JUDGEMENT = {**{k: "jint" for k in ("by_epoch", "epoch", "gen", "seq", "round", 
                                   "created", "hb", "observed_from")},
              **{k: _STR for k in ("by_session", "session", "rid", "decision", "run", "job", "state", "key", "name",
                                   "type", "kind", "lane", "version", "stop_id", "by_signal", "released_by", "model",
-                                  "dataset", "sid", "account", "reason", "origin_rid", "origin_signal", "mode",
+                                  "dataset", "sid", "account", "reason", "origin_rid", "origin_signal", "mode", "origin_job",
                                   "start_test_version", "stop_signal", "contaminated_for", "result")},
              "requester": _STR, "task": _ID, "until": _JNUM_NULL, "tasks": "list_id", "keys": _LSTR,
              "train_keys": _LSTR, "task_keys": _LSTR, "asks_handled": _LSTR, "effects": "effects",
@@ -383,8 +388,13 @@ class View:
         self.f: Dict[str, FileRec] = {p: FileRec(copy.deepcopy(r.obj), r.owner, r.created, r.modified)
                                       for p, r in inp.files.items()}          # 입력은 바꾸지 않음 (M7)
         self.unknown_files: Set[str] = {u[5:] for u in inp.unknown if u.startswith("file:")}
+        self.dup_files: Set[str] = {u[4:] for u in inp.unknown if u.startswith("dup:")}     # 같은 이름 파일 여럿 (b19 Z4)
+        self.blocked_writes, self._blocked_seen = 0, set()
+        self.holds_unknown = any(u.startswith(P_HOLD) for u in self.unknown_files)       # 정지 보류 하나라도 모름 (b20 Q1)
         self.g_account = cfg.accounts.get("G", "")
         self.alerts: List[dict] = []
+        for dp in sorted(self.dup_files):
+            self.alerts.append({"kind": "duplicate_path", "path": dp, "why": "같은 이름 파일이 여럿 — 하나만 남길 때까지 처리하지 않음"})
         for p, r in self.f.items():                    # 산출물 목록·판정 파일의 형태가 틀리면 그 파일만 '모름' (U1·0i)
             if p in self.unknown_files:
                 continue
@@ -567,6 +577,15 @@ class View:
             if len(fs) > 1:
                 self.duplicates.add(s_)
                 self.alerts.append({"kind": "duplicate_session", "session": s_, "fps": sorted(fs)})
+        self.stalled: Dict[str, float] = {}            # 세션 → '멈춘 것 같음'으로 본 시각 (2b-1)
+        for s_, w in self.workers.items():
+            b = w.get("busy")
+            if isinstance(b, dict) and _numlike(b.get("progress_at")) and not w.get("stopping"):
+                lim = STALL_SEC.get(str(b.get("lane") or "task"), STALL_SEC["task"])
+                if self.now - float(b["progress_at"]) > lim:
+                    self.stalled[s_] = float(b["progress_at"]) + lim
+                    self.alerts.append({"kind": "worker_stalled", "session": s_, "lane": b.get("lane"), "rid": b.get("rid"),
+                                        "task": b.get("task"), "phase": b.get("phase"), "since": b.get("since")})
         self.signals = sorted(((_name(p), p, r) for p, r in self.f.items()   # 형태가 틀린 신호도 넣음 → '거절' 완료 기록
                                if p.startswith(P_SIGNALS) and p.endswith(".json") and p not in self.unknown_files),
                               key=lambda t: (t[2].created, t[0]))
@@ -588,6 +607,13 @@ class View:
     def put(self, path: str, obj: dict, why: str, mode: str = "put"):
         o = dict(obj, by_session=self.me, by_epoch=self.ep)
         if mode == "create" and path in self.f:
+            return
+        if path in self.unknown_files and not path.startswith(P_ALERT) and path != P_ARBITER:
+            # 읽지 못한(같은 이름 여럿 포함) 경로에는 쓰지 않음 — 무엇을 덮는지 모름 (b20 Q1)
+            self.blocked_writes += 1
+            if path not in self._blocked_seen:
+                self._blocked_seen.add(path)
+                self.alert("blocked_" + short_hash(path), {"kind": "write_blocked_unknown", "path": path, "why": why})
             return
         self.res.writes.append(Write(path, o, mode, why))
         prev = self.f.get(path)
@@ -612,9 +638,13 @@ class View:
         if not s or s in self.duplicates:
             return False
         w = self.workers.get(s)
+        if s in self.stalled:
+            return False                                # 생존 신호는 오지만 처리기가 멈춘 것 같음 (2b-1)
         return bool(w) and not w.get("stopping") and (self.now - float(w.get("hb", 0))) <= HB_STALE
 
     def hb_lost_at(self, s: str) -> float:
+        if s in self.stalled:
+            return self.stalled[s]
         return float((self.workers.get(s) or {}).get("hb", 0)) + HB_STALE
 
     def caps(self, s: str) -> set:
@@ -966,7 +996,10 @@ def _signal_requester(v: View, rec: FileRec, kind_name: str, sig: dict) -> Tuple
     if v.g_account and rec.owner == v.g_account:
         if kind_name != "release" or not sig.get("origin_signal"):
             return None, "g_not_allowed:" + kind_name, False
-        orig = v.f.get(P_SIGNALS + sig["origin_signal"] + ".json")
+        op = P_SIGNALS + sig["origin_signal"] + ".json"
+        if op in v.unknown_files:
+            return None, "origin_read_unknown", False        # 못 읽음(같은 이름 여럿 포함)은 '없음'이 아니라 모름 (b20 Q2)
+        orig = v.f.get(op)
         if not orig:
             return None, "origin_missing", False
         who, why = v.requester_ok(orig.owner, "release")
@@ -979,11 +1012,16 @@ def _signal_requester(v: View, rec: FileRec, kind_name: str, sig: dict) -> Tuple
     return who, why, bool(who) and (v.people_by_id.get(who) or {}).get("role") == "admin"
 
 
+IDENTITY_UNKNOWN = ("owner_unknown", "origin_owner_unknown", "origin_read_unknown")    # 신원을 '모름' — 거절이 아니라 미룸 (Z1)
+
+
 def process_signals(v: View):
     seq = max([int(p.get("seq", 0)) for p in v.plans.values()] or [0])
     for sid, path, rec in v.signals:
         if sid in v.done:
             continue
+        if (P_PLAN + sid + ".json") in v.unknown_files or (P_DONE + sid + ".json") in v.unknown_files:
+            continue                                  # 이 신호의 계획·완료 기록을 모름 → 미룸 (b20 Q1)
         kind_name = sid.split("__", 1)[0]
         if kind_name == "wake":
             continue
@@ -1006,6 +1044,8 @@ def process_signals(v: View):
             who, why, admin = _signal_requester(v, rec, kind_name, sig)
             if kind is None:
                 who, why = None, "unknown_kind"
+            if who is None and why in IDENTITY_UNKNOWN:
+                continue                              # 신원을 모름 → 거절하지 않고 미룸 (Q2)
             if who is None:
                 v.put(P_DONE + sid + ".json", {"sid": sid, "result": "rejected", "reason": why, "at": v.now},
                       "reject_signal")
@@ -1018,13 +1058,21 @@ def process_signals(v: View):
         if kind is None:
             continue
         # 관리자 권한은 계획에 적힌 값을 쓰지 않고, 지금 신호 소유자의 권한으로 매번 정함 (b18 Y1)
-        now_who, _, now_admin = _signal_requester(v, rec, kind_name, sig) if rec.owner else (None, "", False)
+        # 지금 신원: 모름 → 끝내지 않고 미룸 / 권한 철회 → 아직 적용하지 않은 효과는 거절 / 허용 → 진행 (b19 Z1, 11/16 결정)
+        now_who, now_why, now_admin = _signal_requester(v, rec, kind_name, sig) if rec.owner else (None, "owner_unknown", False)
+        if now_who is None and now_why in IDENTITY_UNKNOWN:
+            continue
+        revoked = now_who is None
         sig["_requester"] = plan.get("requester")
         sig["_admin"] = bool(now_admin) and now_who == plan.get("requester")
         results, deferred = {}, False
+        blocked0 = v.blocked_writes
         for eff in plan.get("effects", []):
             if kind.evidence(v, sid, sig, eff):
                 results[eff] = "reflected"
+                continue
+            if revoked:
+                results[eff] = "invalid:revoked:" + now_why
                 continue
             verdict, why = kind.judge(v, sid, sig, eff)
             if verdict == "defer":
@@ -1035,7 +1083,7 @@ def process_signals(v: View):
                 continue
             kind.apply(v, sid, sig, eff)
             results[eff] = "applied"
-        if deferred:
+        if deferred or v.blocked_writes > blocked0:     # 효과 쓰기가 막혔으면(읽지 못한 경로) 완료로 적지 않음 (Q1)
             continue
         v.put(P_DONE + sid + ".json", {"sid": sid, "seq": plan["seq"], "result": "done", "effects": results,
                                        "at": v.now}, "done")
@@ -1049,8 +1097,11 @@ def make_intake(v: View, req: dict, who, account, why) -> dict:
     for k in ("model", "dataset", "name", "server"):
         if req.get(k) is not None:
             d[k] = req.get(k)
+    if isinstance(req.get("params"), dict):            # 앱·수집기의 설정값을 처리기까지 (2b-2: export 형식·백업 방식 등)
+        d["params"] = req["params"]
     if req.get("kind") == "recovery":
-        d.update(origin_rid=req.get("origin_rid"), origin_signal=req.get("by_signal"), mode=req.get("mode"))
+        d.update(origin_rid=req.get("origin_rid"), origin_signal=req.get("by_signal"), mode=req.get("mode"),
+                 origin_job=req.get("origin_job"))           # 복구 일이 원래 확정의 복구 자료를 찾음 (2b-5b)
     return d
 
 
@@ -1716,8 +1767,8 @@ def _assign(v: View, r: dict, pick: str, lane: str, tasks: List[str], extra: dic
 
 
 def schedule(v: View):
-    if any(h.get("active") for h in v.holds.values()):
-        v.res.notes.append("hold")
+    if any(h.get("active") for h in v.holds.values()) or v.holds_unknown:
+        v.res.notes.append("hold" if not v.holds_unknown else "hold_unknown")   # 보류를 모르면 있는 것으로 (Q1)
         return
     busy = {a.get("session") for a in v.assigns.values() if a.get("state") == "active"}
     idle = [s for s in sorted(v.workers) if v.alive(s) and s not in busy and s != v.me]
@@ -1864,6 +1915,8 @@ def _busy_count(v: View) -> int:
 
 def wake_info(v: View, check: dict) -> dict:
     holds_active = sorted(k for k, h in v.holds.items() if h.get("active"))
+    if v.holds_unknown:
+        holds_active.append("(모름)")                 # 마스터의 GPU 기동·Keeper 판단에서 보류로 보이게 (Q1)
     cands = []
     runnable = 0
     if not holds_active:
@@ -1876,7 +1929,7 @@ def wake_info(v: View, check: dict) -> dict:
     if runnable:
         cands.append(v.now)
     cands += [float(t) for t in v.inp.waiting.values()]
-    cands += [float(v.holds[k]["until"]) for k in holds_active if v.holds[k].get("until") is not None]
+    cands += [float(v.holds[k]["until"]) for k in holds_active if k in v.holds and v.holds[k].get("until") is not None]
     if not is_day(v.now, v.cfg.tz_offset_h):
         for rid, it in v.intake.items():
             req = v.requests.get(rid) or {}
@@ -1888,7 +1941,8 @@ def wake_info(v: View, check: dict) -> dict:
             "observed_from": v.inp.list_started_at, "observed_requests": sorted(set(v.requests) | set(v.bad_requests)),
             "holds": holds_active, "executor_wait": len(check["executor_wait"]),
             "executor_wait_night": len(check["executor_wait_night"]),
-            "gpu_needed": len(check["gpu_needed"]), "busy": _busy_count(v),
+            "gpu_needed": 0 if v.holds_unknown else len(check["gpu_needed"]), "busy": _busy_count(v),
+            "holds_unknown": v.holds_unknown,
             "workers": sorted(s for s in v.workers if v.alive(s))}
 
 
@@ -1921,11 +1975,37 @@ def decide_round(cfg: Cfg, inp: Inputs) -> Result:
                                                 "busy": 0, "workers": []},
                           "asks_handled": list(v.arbiter.get("asks_handled") or [])}, "round_protect")
         return res
+    # 판정 보류 (11/16 결정 A, b21): 읽지 못한 것이 하나라도 있으면(목록·파일·같은 이름 여럿) 이 회차는 판정하지 않음.
+    # 회차 기록·알림만 씀. 다음 회차에 다 읽히면 이어서 함. 사람 목록이 오래된 것('config')은 따로 (하던 일만 마무리, Q3)
+    hold_on = sorted(u for u in unknown if u != "config")
+    if hold_on:
+        res.notes.append("hold_on_unknown")
+        res.hold_on = hold_on
+        was = v.arbiter.get("hold_on_since")
+        since = float(was) if (v.arbiter.get("hold_on") and _numlike(was)) else v.now
+        if v.now - since > HOLD_ON_ALERT_SEC:
+            v.alert("hold_on_" + short_hash(str(since)), {"kind": "hold_on_long", "since": since,
+                                                          "unknown": hold_on[:20], "minutes": int((v.now - since) // 60)})
+        same_epoch = _intlike(v.arbiter.get("by_epoch", -1)) and int(v.arbiter.get("by_epoch", -1)) == v.ep
+        rnd = int(v.arbiter.get("round", 0)) + 1 if same_epoch and _intlike(v.arbiter.get("round", 0)) else 1
+        holds = sorted(k for k, h in v.holds.items() if h.get("active")) + ["(모름)"]
+        v.put(P_ARBITER, {"epoch": v.ep, "round": rnd, "session": cfg.me, "at": v.now, "version": VERSION,
+                          "unknown": sorted(unknown), "critical_unknown": True, "protect": [],
+                          "hold_on": hold_on, "hold_on_since": since,
+                          "check": dict(v.arbiter.get("check") or {}) if isinstance(v.arbiter.get("check"), dict) else {},
+                          "wake": {"runnable": 0, "next_wake_at": None, "holds": holds, "hold_on": True, "holds_unknown": True,
+                                   "observed_from": v.inp.list_started_at, "observed_requests": [],
+                                   "executor_wait": 0, "executor_wait_night": 0, "gpu_needed": 0,
+                                   "busy": _busy_count(v), "workers": sorted(s_ for s_ in v.workers if v.alive(s_))},
+                          "asks_handled": list(v.arbiter.get("asks_handled") or [])}, "round_hold_on")
+        return res
     critical = bool(CRITICAL & unknown)
     handled: List[str] = []
     report = None
     if v.handover is None:                       # 이 epoch의 인계를 아직 마치지 않음
-        if not critical:
+        if (P_HANDOVER + f"{v.ep}.json") in v.unknown_files:
+            res.notes.append("handover_unknown")      # 인계 기록을 모름(읽기 실패·같은 이름 여럿) → 인계를 되풀이하지 않고 기다림 (Q1)
+        elif not critical:
             report = reissue(v)
             report["check"] = periodic_check(v)
             pending = sorted(p for p in v.unknown_files if p.startswith(ARB + "locks/") or p.startswith(P_ASSIGN))
@@ -1987,12 +2067,16 @@ def executor_may_follow(files: Dict[str, FileRec], accounts: Dict[str, str], ses
     g = files.get(P_GRANT)
     if not g or not accounts.get("G") or g.owner != accounts["G"]:
         return False, "grant_untrusted"
-    gr = g.obj or {}
+    if not isinstance(g.obj, dict) or not _intlike(g.obj.get("epoch", -1)):
+        return False, "grant_bad"                      # 객체가 아닌 자격 파일 (0o부터 snapshot이 그대로 넘김)
+    gr = g.obj
     gep = int(gr.get("epoch", -1))
     lk = files.get(P_LOCK_TASK + f"{task}.json")
     if not lk:
         return False, "lost"
-    o = lk.obj or {}
+    o = lk.obj if isinstance(lk.obj, dict) else {}
+    if not _intlike(o.get("by_epoch", 0)) or not _intlike(o.get("epoch", -1)):
+        return False, "lock_bad"
     if o.get("by_session") is None or o.get("by_epoch") is None or int(o["by_epoch"]) > gep \
             or (int(o["by_epoch"]) == gep and o["by_session"] != gr.get("session")):
         return False, "lock_untrusted"

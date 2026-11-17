@@ -77,7 +77,8 @@ def ensure(base):
 
 # ---------- 대상 TASK ----------
 def load_tracked(base):
-    return _read_json(root(base) / "tracked.json", {})
+    tr = _read_json(root(base) / "tracked.json", {})
+    return {k: v for k, v in tr.items() if not str(k).startswith("_")}   # v4.33: 게시 표시(_pub)는 TASK가 아님
 
 
 @_locked

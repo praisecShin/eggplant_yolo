@@ -262,6 +262,8 @@ def world(t0, grant=True, test=True, min_ver="4.33.0", gpu_running=False, people
     w.admin = IO.LocalStore(root / "admin", default_owner=A0, clock=w.clk)
     w.admin.write_json("config/people.json", people)
     w.admin.write_json("config/accounts.json", ACC)
+    if test:
+        w.admin.write_json("config/exec.json", {"test_project_id": 77})    # 시험 실행은 시험 프로젝트 번호가 있어야 시작 (2b-6)
     if min_ver:
         w.admin.write_json("config/min_version.json", {"master": min_ver})
     w.kcalls, w.spawned, w.logs = [], [], []
@@ -349,6 +351,30 @@ run(w2, 30)
 check(len([c for c in w2.kcalls if c[:2] == ["kernels", "push"]]) == 2, "GPU 작업자가 계속 안 뜨면 10분 뒤 다시 올림 (회차 30번 = 12분 30초에 두 번)")
 wk = w.store.read_json([e.path for e in w.store.list("workers/", False) if "kgl-" in e.path][0])
 check(wk["stopping"] is True and Path(w.spawned[0][0][-1]).exists(), "끝낼 때: 작업 프로세스에 멈춤 파일, 마지막 생존 신호는 '끝남'")
+
+
+# b22 R2: arb/ 목록을 못 읽은 회차에는 옛 요약으로 GPU를 켜지 않음
+w = world(DAY)
+w.store.write_json("requests/REQ_r1__track__pending.json", {"tasks": ["1"], "created": DAY}, owner=A0)
+state = {"rounds": 0}
+kg0 = w.kaggle
+def kg_r2(args):
+    if args[:2] == ["kernels", "status"]:
+        w.kcalls.append(list(args))
+        return 0, ('has status "running"' if state["rounds"] < 4 else 'has status "complete"'), ""
+    return kg0(args)
+w.kaggle = kg_r2
+real_list = w.store.list
+def list_r2(prefix, recursive, include=None):
+    if prefix == "requests/":
+        state["rounds"] += 1                   # 회차마다 한 번
+    if prefix == "arb/" and state["rounds"] >= 4:
+        raise IO.StoreError("arb list down")
+    return real_list(prefix, recursive, include)
+w.store.list = list_r2
+run(w, 40)
+pushes = [c for c in w.kcalls if c[:2] == ["kernels", "push"]]
+check(not pushes, "arb/ 목록을 못 읽는 회차에는 지난 회차의 요약(GPU 필요)으로 GPU 작업자를 켜지 않음 (R2)")
 
 # GPU 작업자가 이미 실행 중이면 올리지 않음
 w = world(DAY, gpu_running=True)

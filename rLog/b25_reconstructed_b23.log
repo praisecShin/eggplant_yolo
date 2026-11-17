@@ -1,0 +1,14 @@
+{"name": "S1_humanAA", "passed": true, "evidence": {"result": [{"rid": "protect", "task": "1", "job": "E-1-1-3d27df", "result": "held:human_labels", "decision": "dc1938bd46035ffcb", "session": "E", "at": 1762995680, "by_session": "MS1", "by_epoch": 1}], "writes": []}}
+{"name": "S1_human_vf", "passed": true, "evidence": {"result": [{"rid": "protect", "task": "1", "job": "E-1-1-3d27df", "result": "held:human_labels", "decision": "dc1938bd46035ffcb", "session": "E", "at": 1762995680, "by_session": "MS1", "by_epoch": 1}], "writes": []}}
+{"name": "S2_timeout_restore", "passed": true, "evidence": {"writes": [["remove_annotations", 1], ["import_annotations", 1, "CVAT 1.1"]], "lock": "quarantine", "started": ["import-3"]}}
+{"name": "S3_restore_authority", "passed": true, "evidence": {"writes": [["remove_annotations", 1], ["import_annotations", 1, "CVAT 1.1"], ["remove_annotations", 1]], "lock": "quarantine"}}
+{"name": "S4_republish", "passed": true, "evidence": {"error": "VerifyError", "file": "old"}}
+{"name": "S5_engine_cli", "passed": true, "evidence": {"near": "1", "box_source": "detection", "returncode": 1}}
+{"name": "S5_negative_--near", "passed": true, "evidence": {"returncode": 2}}
+{"name": "S5_negative_--box-source", "passed": true, "evidence": {"returncode": 2}}
+{"name": "S6_import_format", "passed": true, "evidence": {"imports": ["CVAT 1.1", "CVAT 1.1"], "exports": ["CVAT for video 1.1", "CVAT for video 1.1"], "result": [{"rid": "formats", "task": "1", "job": "E-1-1-a22982", "result": "failed:import(restored)", "decision": "d38b2f7748cdc8856", "session": "E", "at": 1762995680, "by_session": "MS1", "by_epoch": 1}], "ann": {"shapes": [{"human": 1}], "tracks": [], "tags": []}}}
+{"name": "S7_scope_wrapped", "passed": true, "evidence": {"blocked": true, "writes": []}}
+{"name": "S7_scope_client", "passed": true, "evidence": {"blocked": true, "writes": []}}
+{"name": "S7_scope_session", "passed": true, "evidence": {"blocked": true, "writes": []}}
+{"name": "S7_scope_ops", "passed": true, "evidence": {"blocked": true, "writes": []}}
+RESULT True

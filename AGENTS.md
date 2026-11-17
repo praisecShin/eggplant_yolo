@@ -74,6 +74,10 @@ python3 tests/test_access_433.py drive     # v4.33: 접근 통제·배포 검증
 python3 tests/test_master_433.py drive     # v4.33: 저장소·마스터 루프·실행기 뼈대 (1b)
 python3 tests/test_master_main_433.py drive   # v4.33: 배포 묶음·뿌리 노트북·마스터 본체 (2a)
 python3 tests/test_fuzz_433.py drive         # v4.33: 무작위 입력 시험 — 어떤 입력에도 판정 회차가 예외 없이 끝나는지 (약 15초)
+python3 tests/test_handlers_433.py drive      # v4.33: 처리기 (2b — 등록부·시험 범위·산출물 검증·진행/멈춤, 가짜 CVAT tests/fake_cvat.py)
+python3 tests/test_hosts_433.py drive         # v4.33: 실행 호스트 (2b-6 — 시험 범위 강제·영상/모델 받기·GPU 뿌리 노트북·Colab 설정·복구 자료 청소·웹 상태)
+python3 tests/test_e2e_433.py drive           # v4.33: 연결 시험 (2b-7 — 심판·실행기 여럿·처리기·가짜 CVAT 끝에서 끝까지)
+python3 tests/test_cells_433.py drive         # v4.33: 사람용 셀 (2c-1 기반 — 분석 모드·쓰기 가드·CVAT 전송 가드·요청 API · 2c-2 읽기 셀 실행)
 node tests/test_collector.js apps_script/G_collector/Collector.gs apps_script/G_collector/Uld.gs   # v4.33: 수집기 (배정·깨우기를 뺀 Code.gs) + Uld.gs — Keeper 시험보다 먼저 (생존 기록 산출물을 남김)
 node tests/test_keeper.js apps_script/G_keeper/Keeper.gs   # v4.33: Keeper
 node tests/test_ctrl_app.js apps/ctrl/index.html   # v4.33: CTRL앱 (jsdom 필요: npm i jsdom)

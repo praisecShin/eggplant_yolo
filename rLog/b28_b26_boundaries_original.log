@@ -1,0 +1,18 @@
+Traceback (most recent call last):
+  File "/mnt/c/Users/user/Project/eggplant_v4.33.0/drive/scripts/h_run.py", line 303, in train
+    on_tick()
+    ~~~~~~~^^
+  File "/mnt/c/Users/user/Project/eggplant_v4.33.0/rLog/b26_process_boundaries.py", line 21, in tick
+    if (wd/'detached.pid').exists():raise access.AuthorityLost('boundary')
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+access.AuthorityLost: boundary
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/mnt/c/Users/user/Project/eggplant_v4.33.0/rLog/b26_process_boundaries.py", line 22, in <module>
+    try:tr.train(str(ds),'no-model',{},str(wd),lambda n:None,on_tick=tick)
+        ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/user/Project/eggplant_v4.33.0/drive/scripts/h_run.py", line 315, in train
+    raise CleanupUnknown(f"{cu} (원래: {type(first).__name__})") from first
+h_run.CleanupUnknown: cleanup_unknown: cleanup_unknown: 감독이 끝나지 않음 (원래: AuthorityLost)

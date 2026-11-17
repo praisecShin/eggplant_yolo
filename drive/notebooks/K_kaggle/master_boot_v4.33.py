@@ -6,10 +6,13 @@
 #
 # 손으로 고치지 마세요 — dev_tools/build_deploy.py가 만듭니다 (고정 해시·시험 여부를 넣음).
 MANIFEST_SHA256 = "__MANIFEST_SHA256__"
+MANIFEST_NAME = "__MANIFEST_NAME__"  # 마스터: manifest.json · GPU 작업자: worker_manifest.json (scripts만, 2b-6)
+ROLE = "__ROLE__"                    # master | gpu
+KERNEL = "__KERNEL__"                # 이 노트북의 Kaggle 주소 (GPU 작업자 생존 신호에 실음)
 TEST = __TEST__
 REMOTE = "__REMOTE__"                # 공유 폴더 rclone 연결
 ADMIN_REMOTE = "__ADMIN_REMOTE__"    # 관리자 폴더 rclone 연결 (같은 A0 토큰, 11/14 결정)
-BOOT_VERSION = "4.33.0j"
+BOOT_VERSION = "4.33.0x"
 
 import hashlib
 import importlib.abc
@@ -55,10 +58,38 @@ def install_tools():
         os.environ["PATH"] = os.path.dirname(dst) + ":" + os.environ.get("PATH", "")
     if not shutil.which("rclone"):
         raise BootStop("rclone 설치 실패 — Kaggle Internet 설정을 확인하세요")
+    install_packages()
+
+
+CVAT_LAST_KNOWN = "2.79.0"            # 서버 버전을 못 읽을 때 (v4.32 GPU 작업자와 같음)
+
+
+def _ver(dist):
     try:
-        import kaggle  # noqa: F401
+        from importlib.metadata import version
+        return version(dist)
     except Exception:
-        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "kaggle"], check=False)
+        return None
+
+
+def install_packages():
+    """마스터(작업 프로세스의 백업·export·데이터셋)와 GPU 작업자(track·학습)가 쓰는 패키지. 서버와 같은 X.Y의 cvat-sdk."""
+    need = []
+    if ROLE == "master" and _ver("kaggle") is None:
+        need.append("kaggle")
+    try:
+        with urllib.request.urlopen("https://app.cvat.ai/api/server/about", timeout=15) as r:
+            sv = json.loads(r.read().decode("utf-8")).get("version") or CVAT_LAST_KNOWN
+    except Exception:
+        sv = CVAT_LAST_KNOWN
+    mj, mn = sv.split(".")[:2]
+    cli, sdk = _ver("cvat-cli"), _ver("cvat-sdk")
+    if not (cli and sdk and cli == sdk and cli.startswith(f"{mj}.{mn}.")):
+        need.append(f"cvat-cli~={mj}.{mn}.0")
+    mods = [("av", "av")] + ([("ultralytics", "ultralytics"), ("lap", "lap")] if ROLE == "gpu" else [])
+    need += [p for p, m in mods if importlib.util.find_spec(m) is None]
+    if need:
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", *need], check=False)
 
 
 # ---------------------------------------------------------------- 보안 비밀 → 세션 임시 폴더(0600)
@@ -144,7 +175,7 @@ def fetch_deploy(admin_remote: str = None, rclone=None) -> dict:
     r = rclone("copy", admin_remote + "deploy", str(d))
     if r.returncode != 0:
         raise BootStop("deploy/를 받지 못했습니다")
-    mb = (d / "manifest.json").read_bytes() if (d / "manifest.json").exists() else b""
+    mb = (d / MANIFEST_NAME).read_bytes() if (d / MANIFEST_NAME).exists() else b""
     if not mb or sha256(mb) != MANIFEST_SHA256:
         raise BootStop("배포 목록 해시가 이 노트북의 고정값과 다릅니다 — 실행하지 않습니다")
     man = json.loads(mb.decode("utf-8"))
@@ -234,11 +265,15 @@ def lock_imports(files: dict):
 
 
 def boot(run=True):
-    print(f"[뿌리 노트북 {BOOT_VERSION}] {'시험' if TEST else '운영'} · 연결 {REMOTE} / {ADMIN_REMOTE}")
+    print(f"[뿌리 노트북 {BOOT_VERSION}] {ROLE} · {'시험' if TEST else '운영'} · 연결 {REMOTE} / {ADMIN_REMOTE}")
     install_tools()
     sec = setup_credentials()
     dep = fetch_deploy()
     lock_imports(dep["files"])
+    if ROLE == "gpu":                                  # GPU 작업자: 같은 검증 뒤 실행기만 (2b-6)
+        import exec_host
+        print(f"✅ 배포 검증: 파일 {len(dep['files'])}개")
+        return exec_host.main_gpu(dep["files"], REMOTE, ADMIN_REMOTE, TEST, kernel=KERNEL) if run else dep
     import master_main
     b = master_main.Boot(files=dep["files"], remote=REMOTE, admin_remote=ADMIN_REMOTE, test=TEST, secret_dir=sec)
     print(f"✅ 배포 검증: 파일 {len(dep['files'])}개")

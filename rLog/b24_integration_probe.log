@@ -1,0 +1,5 @@
+T6 actual results= [{'rid': 'refresh', 'task': 'run', 'job': 'agg_29096125b2487d34', 'result': 'done', 'decision': 'd820a9266e825dd1a', 'session': 'E', 'at': 1762995840, 'by_session': 'MS1', 'by_epoch': 1}, {'rid': 'track', 'task': '1', 'job': 'E-1-1-0a8d85', 'result': 'done', 'decision': 'dfc2a539aea42d6f4', 'session': 'E', 'at': 1762995680, 'by_session': 'MS1', 'by_epoch': 1}]
+T6 actual refreshed row= {'id': 1, 'name': 'eggplant_G6_261026_1_4_uld_AA', 'last': None, 'runs': 0, 'worked': None}
+T7 actual existing task= {'id': 2, 'name': 'REH_test_uld', 'project_id': 7, 'size': 10, 'labels': ['fruit', 'bud'], 'updated': '2026-11-16T00:00:02Z'} tracked= {'2': {'first_name': 'REH_test_uld', 'in_cvat': False, 'name': 'REH_test_uld', 'gone_at': 1762995640, 'progressed': True, 'progressed_at': 1762995640}, '_pub': {'epoch': 1, 'gen': 1, 'run': 'agg_8fea40580e10b879', 'rid': 'refresh', 'at': 1762995640}} list_complete= True
+T4 actual run_train on_epoch serialization= TypeError cannot pickle '_thread.lock' object
+T4 actual run_train failed= TypeError
